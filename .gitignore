@@ -1,0 +1,22 @@
+# Dépendances (réinstallées via npm install)
+node_modules/
+
+# Build (régénéré via npm run build)
+dist/
+
+# Base de données — contient les données réelles des clients
+# (noms, téléphones, mots de passe d'appareils...). Ne JAMAIS publier.
+server/*.db
+server/*.db-journal
+
+# Logs
+npm-debug.log*
+*.log
+
+# Fichiers d'environnement / secrets éventuels
+.env
+.env.local
+
+# Fichiers système
+.DS_Store
+Thumbs.db
