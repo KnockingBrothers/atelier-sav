@@ -29,7 +29,17 @@ const ETAT_COLOR = {
   Autres: "#8B93A1",
 };
 
-const STATUTS = ["Reçu", "En cours", "Prêt", "Appel/SMS", "Restitué"];
+const STATUTS = ["Reçu", "En cours", "Attente retour client", "Attente pièces", "Prêt", "Appel/SMS", "Restitué"];
+
+const STATUT_COLOR = {
+  "Reçu": "var(--text-muted)",
+  "En cours": "var(--amber)",
+  "Attente retour client": "var(--red)",
+  "Attente pièces": "var(--red)",
+  "Prêt": "var(--teal)",
+  "Appel/SMS": "#C5F527",
+  "Restitué": "var(--teal)",
+};
 
 const CHECKUP_ITEMS = [
   { key: "hp", label: "HP" },
@@ -169,6 +179,7 @@ function blankTicket() {
     marqueModele: "",
     imei: "",
     panne: "",
+    diagnostic: "",
     accessoires: { sacoche: false, chargeur: false, souris: false, usbWifi: false, autres: false, autresTexte: "" },
     etat: "",
     etatAutresTexte: "",
@@ -182,7 +193,7 @@ function blankTicket() {
   };
 }
 
-const ARCHIVE_DELAY_MS = 48 * 60 * 60 * 1000; // 48h avant archivage automatique
+const ARCHIVE_DELAY_MS = 24 * 60 * 60 * 1000; // 24h avant archivage automatique
 
 async function loadCounter() {
   try {
@@ -431,6 +442,7 @@ async function generateTicketPDF(ticket) {
   const colW = contentWidth / 3;
   const hasTaches = ticket.taches && Object.keys(ticket.taches).length > 0;
   const hasPanne = ticket.panne && ticket.panne.trim();
+  const hasDiagnostic = ticket.diagnostic && ticket.diagnostic.trim();
   const hasAccessoires = ACCESSOIRES.some((a) => ticket.accessoires[a.key]) || ticket.accessoires.autres;
   const hasRemarque = ticket.remarque && ticket.remarque.trim();
   const hasCheckup = ticket.checkup && Object.keys(ticket.checkup).length > 0;
@@ -470,6 +482,10 @@ async function generateTicketPDF(ticket) {
 
   if (hasPanne) {
     y = drawBox("Panne constatée", ticket.panne, y);
+  }
+
+  if (hasDiagnostic) {
+    y = drawBox("Diagnostic / Intervention", ticket.diagnostic, y);
   }
 
   if (hasAccessoires) {
@@ -1160,7 +1176,7 @@ export default function App() {
                         className="sav-badge"
                         style={{
                           background: "var(--graphite-800)",
-                          color: t.statut === "Restitué" ? "var(--teal)" : t.statut === "En cours" ? "var(--amber)" : "var(--text-muted)",
+                          color: STATUT_COLOR[t.statut] || "var(--text-muted)",
                         }}
                       >
                         {t.statut}
@@ -1349,6 +1365,15 @@ export default function App() {
               <div className="sav-field">
                 <label>Panne constatée</label>
                 <textarea value={current.panne} onChange={(e) => update({ panne: e.target.value })} placeholder="Description de la panne" />
+              </div>
+              <div className="sav-field">
+                <label>Diagnostic / Intervention</label>
+                <textarea
+                  value={current.diagnostic}
+                  onChange={(e) => update({ diagnostic: e.target.value })}
+                  placeholder="Diagnostic posé et intervention réalisée"
+                  style={{ color: "#FF0000" }}
+                />
               </div>
             </div>
 
@@ -1578,6 +1603,12 @@ export default function App() {
             <div style={{ border: "1px solid #000", borderRadius: 4, padding: "8px 10px", margin: "10px 0" }}>
               <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>Panne constatée</div>
               <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap" }}>{current.panne}</div>
+            </div>
+          )}
+          {current.diagnostic && current.diagnostic.trim() && (
+            <div style={{ border: "1px solid #000", borderRadius: 4, padding: "8px 10px", margin: "10px 0" }}>
+              <div style={{ fontWeight: 600, fontSize: 12, marginBottom: 4 }}>Diagnostic / Intervention</div>
+              <div style={{ fontSize: 12.5, whiteSpace: "pre-wrap" }}>{current.diagnostic}</div>
             </div>
           )}
           {(ACCESSOIRES.some((a) => current.accessoires[a.key]) || current.accessoires.autres) && (
