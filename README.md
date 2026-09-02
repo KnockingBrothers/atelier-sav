@@ -69,7 +69,7 @@ sudo apt install -y sqlite3
 ./backup.sh
 ```
 
-Crée une copie compressée et horodatée de la base dans `~/atelier-sav-backups/` (créé automatiquement), en utilisant l'API de sauvegarde native de SQLite — fiable même si le serveur est en train d'écrire dans la base au même moment. Les sauvegardes de plus de 60 jours sont supprimées automatiquement (durée modifiable en tête du script).
+Crée une copie compressée et horodatée de la base dans `~/atelier-sav-backups/` (créé automatiquement), en utilisant l'API de sauvegarde native de SQLite — fiable même si le serveur est en train d'écrire dans la base au même moment. Seules les **30 dernières sauvegardes** sont conservées : les plus anciennes au-delà de ce nombre sont supprimées automatiquement (nombre modifiable en tête du script, variable `KEEP_COUNT`).
 
 ### Programmer une sauvegarde automatique quotidienne (cron)
 

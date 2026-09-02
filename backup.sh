@@ -5,7 +5,7 @@ set -e
 APP_DIR="$HOME/atelier-sav"
 DB_FILE="$APP_DIR/server/atelier-sav.db"
 BACKUP_DIR="$HOME/atelier-sav-backups"
-KEEP_DAYS=60   # nombre de jours de sauvegardes conservées avant purge
+KEEP_COUNT=30   # nombre de dernières sauvegardes conservées avant purge
 # ────────────────────────────────────────────────────────────────
 
 mkdir -p "$BACKUP_DIR"
@@ -29,10 +29,13 @@ gzip "$BACKUP_FILE"
 
 echo "$(date '+%Y-%m-%d %H:%M:%S') — Sauvegarde créée : $BACKUP_FILE.gz"
 
-# Purge des sauvegardes plus anciennes que KEEP_DAYS jours
-find "$BACKUP_DIR" -name "atelier-sav-*.db.gz" -mtime +"$KEEP_DAYS" -delete
+# Rotation : ne garde que les KEEP_COUNT sauvegardes les plus récentes,
+# quelle que soit leur ancienneté (et non plus une purge par nombre de
+# jours). Les fichiers les plus anciens au-delà de ce nombre sont
+# supprimés.
+ls -1t "$BACKUP_DIR"/atelier-sav-*.db.gz 2>/dev/null | tail -n +$((KEEP_COUNT + 1)) | xargs -r rm --
 
-echo "Sauvegardes actuellement conservées dans $BACKUP_DIR :"
+echo "Sauvegardes actuellement conservées dans $BACKUP_DIR ($(ls -1 "$BACKUP_DIR"/atelier-sav-*.db.gz 2>/dev/null | wc -l) / $KEEP_COUNT) :"
 ls -lh "$BACKUP_DIR"/atelier-sav-*.db.gz 2>/dev/null | tail -n 10
 
 # ── Optionnel : copier aussi la sauvegarde sur une autre machine ──
