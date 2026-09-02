@@ -53,7 +53,55 @@ npm run dev      # interface sur le port 5173, avec proxy vers l'API
 
 Les fiches sont maintenant stockées dans une base **SQLite** côté serveur (`server/atelier-sav.db`), pas dans le navigateur. Tous les postes qui se connectent à l'adresse du serveur voient et modifient les mêmes fiches en temps réel.
 
-Pensez à sauvegarder régulièrement le fichier `server/atelier-sav.db` (copie simple, ou script de sauvegarde automatique) : c'est lui qui contient toutes vos données.
+## Sauvegarde et restauration de la base de données
+
+Deux scripts sont fournis pour ne jamais perdre vos données.
+
+### Installer sqlite3 (une seule fois)
+
+```bash
+sudo apt install -y sqlite3
+```
+
+### Sauvegarder manuellement
+
+```bash
+./backup.sh
+```
+
+Crée une copie compressée et horodatée de la base dans `~/atelier-sav-backups/` (créé automatiquement), en utilisant l'API de sauvegarde native de SQLite — fiable même si le serveur est en train d'écrire dans la base au même moment. Les sauvegardes de plus de 60 jours sont supprimées automatiquement (durée modifiable en tête du script).
+
+### Programmer une sauvegarde automatique quotidienne (cron)
+
+```bash
+crontab -e
+```
+
+Ajoutez cette ligne (sauvegarde tous les jours à 2h du matin) :
+
+```
+0 2 * * * /home/VOTRE_UTILISATEUR/atelier-sav/backup.sh >> /home/VOTRE_UTILISATEUR/atelier-sav-backups/backup.log 2>&1
+```
+
+Remplacez `VOTRE_UTILISATEUR` par votre nom d'utilisateur Linux (celui donné par la commande `whoami`).
+
+### Restaurer une sauvegarde
+
+```bash
+./restore.sh
+```
+
+Sans argument, liste les sauvegardes disponibles. Pour restaurer une sauvegarde précise :
+
+```bash
+./restore.sh atelier-sav-20260902-020000.db.gz
+```
+
+Le script arrête l'application, garde une copie de sécurité de la base actuelle (au cas où), restaure la sauvegarde choisie, puis redémarre l'application.
+
+### Important : protéger contre une panne matérielle
+
+Une sauvegarde stockée sur le même disque que le serveur ne protège **pas** contre une panne de disque, un vol, ou une casse du Raspberry Pi/serveur. Pour une vraie protection, copiez aussi régulièrement le dossier `~/atelier-sav-backups/` ailleurs (un autre ordinateur, une clé USB, un NAS, un espace cloud...). La ligne `rsync` en commentaire à la fin de `backup.sh` peut automatiser cet envoi si vous avez une autre machine accessible en SSH.
 
 ## Mettre à jour l'application après une modification
 
