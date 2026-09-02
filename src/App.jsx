@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, ChevronDown, AlertCircle, Loader2, Tag, ArchiveRestore } from "lucide-react";
+import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, ChevronDown, AlertCircle, Loader2, Tag, ArchiveRestore, Archive } from "lucide-react";
 // jsPDF n'est plus importé ici en statique : il est chargé à la demande
 // (voir generateTicketPDF) pour éviter d'alourdir le chargement initial
 // de l'application avec une librairie utilisée seulement à l'impression.
@@ -40,6 +40,24 @@ const STATUT_COLOR = {
   "Appel/SMS": "#C5F527",
   "Restitué": "var(--teal)",
 };
+
+// Couleur de mise en avant des onglets de filtre (dont "Toutes" et
+// "Archivées", qui n'ont pas de couleur de statut propre).
+function tabColor(s) {
+  if (s === "Toutes") return "var(--amber)";
+  if (s === "Archivées") return "var(--text-muted)";
+  return STATUT_COLOR[s] || "var(--amber)";
+}
+
+// Colore le texte saisi en rouge si "ko" apparaît, en vert si "ok"
+// apparaît (recherche insensible à la casse, "ko" prioritaire en cas de
+// présence des deux), sinon ne change rien à la couleur par défaut.
+function koOkColor(value) {
+  const v = String(value || "").toLowerCase();
+  if (v.includes("ko")) return "var(--red)";
+  if (v.includes("ok")) return "var(--teal)";
+  return undefined;
+}
 
 const CHECKUP_ITEMS = [
   { key: "hp", label: "HP" },
@@ -194,6 +212,7 @@ function blankTicket() {
 }
 
 const ARCHIVE_DELAY_MS = 24 * 60 * 60 * 1000; // 24h avant archivage automatique
+const DELETE_AFTER_MS = 367 * 24 * 60 * 60 * 1000; // 367 jours avant suppression définitive des archives
 
 async function loadCounter() {
   try {
@@ -608,7 +627,7 @@ export default function App() {
       loaded.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
 
       // Archive automatiquement les fiches "Restitué" non supprimées dont
-      // le délai de 48h est écoulé depuis le passage à ce statut.
+      // le délai de 24h est écoulé depuis le passage à ce statut.
       const now = Date.now();
       const toArchive = loaded.filter(
         (t) => t.statut === "Restitué" && !t.archived && t.restituedAt && now - t.restituedAt >= ARCHIVE_DELAY_MS
@@ -623,7 +642,21 @@ export default function App() {
         }
       }
 
-      setTickets(loaded);
+      // Supprime définitivement les fiches archivées depuis plus de 367
+      // jours (durée de conservation maximale).
+      const toDelete = loaded.filter((t) => t.archived && t.archivedAt && now - t.archivedAt >= DELETE_AFTER_MS);
+      let finalList = loaded;
+      if (toDelete.length > 0) {
+        for (const t of toDelete) {
+          try {
+            await window.storage.delete(`sav:ticket:${t.id}`);
+          } catch {}
+        }
+        const deletedIds = new Set(toDelete.map((t) => t.id));
+        finalList = loaded.filter((t) => !deletedIds.has(t.id));
+      }
+
+      setTickets(finalList);
       setLastSync(Date.now());
       if (!silent) setError("");
     } catch (e) {
@@ -713,12 +746,7 @@ export default function App() {
   const filtered = useMemo(() => {
     let list;
     if (statutFilter === "Archivées") {
-      // Les fiches archivées sont classées par ordre alphabétique du nom
-      // du client, et non par date comme le reste de la liste.
-      list = tickets
-        .filter((t) => t.archived)
-        .slice()
-        .sort((a, b) => (a.nom || "").localeCompare(b.nom || "", "fr", { sensitivity: "base" }));
+      list = tickets.filter((t) => t.archived);
     } else {
       list = tickets.filter((t) => !t.archived);
       if (statutFilter !== "Toutes") list = list.filter((t) => t.statut === statutFilter);
@@ -729,8 +757,44 @@ export default function App() {
         [t.nom, t.marqueModele, t.telephone, t.imei, t.numero].filter(Boolean).some((f) => f.toLowerCase().includes(q))
       );
     }
+    if (statutFilter === "Archivées") {
+      // Tri alphabétique par défaut (utilisé aussi comme tri secondaire à
+      // l'intérieur de chaque jour dans le classement mois/jour ci-dessous).
+      list = list.slice().sort((a, b) => (a.nom || "").localeCompare(b.nom || "", "fr", { sensitivity: "base" }));
+    }
     return list;
   }, [tickets, search, statutFilter]);
+
+  // Classement des archives par mois puis par jour (basé sur la date
+  // d'archivage), du plus récent au plus ancien. À l'intérieur d'un même
+  // jour, les fiches restent triées par ordre alphabétique du nom.
+  const archivedGroups = useMemo(() => {
+    if (statutFilter !== "Archivées") return null;
+    const months = {};
+    filtered.forEach((t) => {
+      const d = new Date(t.archivedAt || t.updatedAt || t.createdAt || Date.now());
+      const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+      const dayKey = `${monthKey}-${String(d.getDate()).padStart(2, "0")}`;
+      if (!months[monthKey]) {
+        const label = d.toLocaleDateString("fr-FR", { month: "long", year: "numeric" });
+        months[monthKey] = { label: label.charAt(0).toUpperCase() + label.slice(1), days: {} };
+      }
+      if (!months[monthKey].days[dayKey]) {
+        const label = d.toLocaleDateString("fr-FR", { day: "2-digit", month: "long" });
+        months[monthKey].days[dayKey] = { label, tickets: [] };
+      }
+      months[monthKey].days[dayKey].tickets.push(t);
+    });
+    const monthKeys = Object.keys(months).sort((a, b) => b.localeCompare(a));
+    return monthKeys.map((mk) => {
+      const dayKeys = Object.keys(months[mk].days).sort((a, b) => b.localeCompare(a));
+      return {
+        key: mk,
+        label: months[mk].label,
+        days: dayKeys.map((dk) => ({ key: dk, label: months[mk].days[dk].label, tickets: months[mk].days[dk].tickets })),
+      };
+    });
+  }, [filtered, statutFilter]);
 
   const counts = useMemo(() => {
     const active = tickets.filter((t) => !t.archived);
@@ -776,7 +840,7 @@ export default function App() {
     const now = Date.now();
     const toSave = { ...ticketData, id, updatedAt: now, createdAt: ticketData.createdAt || now };
     // Horodate le passage au statut "Restitué" (point de départ du délai
-    // de 48h avant archivage automatique). Si le statut change à nouveau,
+    // de 24h avant archivage automatique). Si le statut change à nouveau,
     // on annule l'archivage programmé.
     if (toSave.statut === "Restitué") {
       if (!toSave.restituedAt) toSave.restituedAt = now;
@@ -869,7 +933,7 @@ export default function App() {
   const unarchiveTicket = async (ticket) => {
     try {
       const now = Date.now();
-      // Réinitialise le délai de 48h : la fiche ne se ré-archivera pas
+      // Réinitialise le délai de 24h : la fiche ne se ré-archivera pas
       // immédiatement, mais reprendra le compte à rebours si elle reste
       // au statut "Restitué".
       const updated = { ...ticket, archived: false, archivedAt: null, restituedAt: now };
@@ -878,6 +942,18 @@ export default function App() {
       if (current && current.id === ticket.id) setCurrent(updated);
     } catch (e) {
       setError("Échec de la désarchivation. Réessayez.");
+    }
+  };
+
+  const archiveTicket = async (ticket) => {
+    try {
+      const now = Date.now();
+      const updated = { ...ticket, archived: true, archivedAt: now };
+      await window.storage.set(`sav:ticket:${ticket.id}`, JSON.stringify(updated));
+      setTickets((prev) => prev.map((t) => (t.id === ticket.id ? updated : t)));
+      if (current && current.id === ticket.id) backToList();
+    } catch (e) {
+      setError("Échec de l'archivage. Réessayez.");
     }
   };
 
@@ -937,6 +1013,71 @@ export default function App() {
     window.storage.set("sav:labelsize", JSON.stringify({ ...dims, preset: "custom" })).catch(() => {});
   };
 
+  const renderCard = (t) => (
+    <div key={t.id} className="sav-card" onClick={() => openEdit(t)}>
+      <div className="notch" />
+      <div className="stripe" style={{ background: STATUT_COLOR[t.statut] || "var(--line)" }} />
+      <button
+        className="sav-card-tag-btn"
+        title="Imprimer l'étiquette"
+        onClick={(e) => {
+          e.stopPropagation();
+          doPrintLabel(t);
+        }}
+      >
+        <Tag size={13} />
+      </button>
+      <button
+        className="sav-card-tag-btn sav-card-del-btn"
+        title="Supprimer la fiche"
+        onClick={(e) => {
+          e.stopPropagation();
+          setConfirmDelete(t.id);
+        }}
+      >
+        <Trash2 size={13} />
+      </button>
+      {t.archived ? (
+        <button
+          className="sav-card-tag-btn sav-card-unarchive-btn"
+          title="Désarchiver la fiche"
+          onClick={(e) => {
+            e.stopPropagation();
+            unarchiveTicket(t);
+          }}
+        >
+          <ArchiveRestore size={13} />
+        </button>
+      ) : (
+        <button
+          className="sav-card-tag-btn sav-card-unarchive-btn"
+          title="Archiver la fiche"
+          onClick={(e) => {
+            e.stopPropagation();
+            archiveTicket(t);
+          }}
+        >
+          <Archive size={13} />
+        </button>
+      )}
+      <div className="num sav-mono">{t.numero}</div>
+      <div className="nom">{t.nom || "Sans nom"}</div>
+      <div className="modele"><Smartphone size={13} /> {t.marqueModele || "Modèle non précisé"}</div>
+      <div className="foot">
+        <span
+          className="sav-badge"
+          style={{
+            background: "var(--graphite-800)",
+            color: STATUT_COLOR[t.statut] || "var(--text-muted)",
+          }}
+        >
+          {t.statut}
+        </span>
+        <span className="date">{formatDate(t.createdAt)}</span>
+      </div>
+    </div>
+  );
+
   return (
     <div className="sav-root">
       <style>{`
@@ -970,6 +1111,10 @@ export default function App() {
         .sav-search input::placeholder { color:var(--text-muted); }
         .sav-tabs { display:flex; gap:6px; flex-wrap:wrap; }
         .sav-archive-hint { padding:8px 24px; font-size:11.5px; color:var(--text-muted); background:var(--graphite-900); border-bottom:1px solid var(--line); }
+        .sav-archive-month { margin-bottom:22px; }
+        .sav-archive-month-title { font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:0.04em; font-size:14px; color:var(--amber); margin:0 0 10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+        .sav-archive-day { margin-bottom:16px; }
+        .sav-archive-day-title { font-size:12px; color:var(--text-muted); margin-bottom:8px; font-weight:500; }
         .sav-tab { padding:7px 12px; border-radius:6px; font-size:12px; font-weight:500; cursor:pointer; border:1px solid transparent; color:var(--text-muted); white-space:nowrap; }
         .sav-tab.active { background:var(--graphite-800); border-color:var(--line); color:var(--text); }
         .sav-tab .n { opacity:0.6; margin-left:4px; }
@@ -1099,17 +1244,26 @@ export default function App() {
               )}
             </div>
             <div className="sav-tabs">
-              {["Toutes", ...STATUTS, "Archivées"].map((s) => (
-                <div key={s} className={`sav-tab ${statutFilter === s ? "active" : ""}`} onClick={() => setStatutFilter(s)}>
-                  {s} <span className="n">{counts[s] || 0}</span>
-                </div>
-              ))}
+              {["Toutes", ...STATUTS, "Archivées"].map((s) => {
+                const color = tabColor(s);
+                const isActive = statutFilter === s;
+                return (
+                  <div
+                    key={s}
+                    className={`sav-tab ${isActive ? "active" : ""}`}
+                    onClick={() => setStatutFilter(s)}
+                    style={isActive ? { borderColor: color, boxShadow: `0 0 0 1px ${color}, 0 3px 10px -2px ${color}` } : undefined}
+                  >
+                    {s} <span className="n">{counts[s] || 0}</span>
+                  </div>
+                );
+              })}
             </div>
           </div>
 
           {statutFilter === "Archivées" && (
             <div className="sav-archive-hint">
-              Fiches restituées, archivées automatiquement 48h après restitution — classées par ordre alphabétique.
+              Fiches restituées, archivées automatiquement 24h après restitution — classées par mois puis par jour, et supprimées définitivement après 367 jours d'archivage.
             </div>
           )}
 
@@ -1130,61 +1284,25 @@ export default function App() {
                   <p>Aucune fiche ne correspond à cette recherche.</p>
                 )}
               </div>
-            ) : (
-              <div className="sav-grid">
-                {filtered.map((t) => (
-                  <div key={t.id} className="sav-card" onClick={() => openEdit(t)}>
-                    <div className="notch" />
-                    <div className="stripe" style={{ background: ETAT_COLOR[t.etat] || "var(--line)" }} />
-                    <button
-                      className="sav-card-tag-btn"
-                      title="Imprimer l'étiquette"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        doPrintLabel(t);
-                      }}
-                    >
-                      <Tag size={13} />
-                    </button>
-                    <button
-                      className="sav-card-tag-btn sav-card-del-btn"
-                      title="Supprimer la fiche"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setConfirmDelete(t.id);
-                      }}
-                    >
-                      <Trash2 size={13} />
-                    </button>
-                    {t.archived && (
-                      <button
-                        className="sav-card-tag-btn sav-card-unarchive-btn"
-                        title="Désarchiver la fiche"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          unarchiveTicket(t);
-                        }}
-                      >
-                        <ArchiveRestore size={13} />
-                      </button>
-                    )}
-                    <div className="num sav-mono">{t.numero}</div>
-                    <div className="nom">{t.nom || "Sans nom"}</div>
-                    <div className="modele"><Smartphone size={13} /> {t.marqueModele || "Modèle non précisé"}</div>
-                    <div className="foot">
-                      <span
-                        className="sav-badge"
-                        style={{
-                          background: "var(--graphite-800)",
-                          color: STATUT_COLOR[t.statut] || "var(--text-muted)",
-                        }}
-                      >
-                        {t.statut}
-                      </span>
-                      <span className="date">{formatDate(t.createdAt)}</span>
-                    </div>
+            ) : statutFilter === "Archivées" ? (
+              <div className="sav-archive-groups">
+                {archivedGroups.map((month) => (
+                  <div key={month.key} className="sav-archive-month">
+                    <h4 className="sav-archive-month-title">{month.label}</h4>
+                    {month.days.map((day) => (
+                      <div key={day.key} className="sav-archive-day">
+                        <div className="sav-archive-day-title">{day.label}</div>
+                        <div className="sav-grid">
+                          {day.tickets.map((t) => renderCard(t))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
                 ))}
+              </div>
+            ) : (
+              <div className="sav-grid">
+                {filtered.map((t) => renderCard(t))}
               </div>
             )}
           </div>
@@ -1378,6 +1496,30 @@ export default function App() {
             </div>
 
             <div className="sav-form-section">
+              <h3>Tarification</h3>
+              <div className="sav-field-row">
+                <div className="sav-field">
+                  <label>Total (€)</label>
+                  <input
+                    value={current.total}
+                    onChange={(e) => update({ total: e.target.value })}
+                    placeholder="0.00"
+                    style={koOkColor(current.total) ? { color: koOkColor(current.total) } : undefined}
+                  />
+                </div>
+                <div className="sav-field">
+                  <label>Prise en charge à déduire (€)</label>
+                  <input
+                    value={current.priseEnCharge}
+                    onChange={(e) => update({ priseEnCharge: e.target.value })}
+                    placeholder="0.00"
+                    style={koOkColor(current.priseEnCharge) ? { color: koOkColor(current.priseEnCharge) } : undefined}
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="sav-form-section">
               <h3>Accessoires laissés</h3>
               <div className="sav-checks">
                 {ACCESSOIRES.map((a) => (
@@ -1445,20 +1587,6 @@ export default function App() {
                     </div>
                   );
                 })}
-              </div>
-            </div>
-
-            <div className="sav-form-section">
-              <h3>Tarification</h3>
-              <div className="sav-field-row">
-                <div className="sav-field">
-                  <label>Total (€)</label>
-                  <input value={current.total} onChange={(e) => update({ total: e.target.value })} placeholder="0.00" />
-                </div>
-                <div className="sav-field">
-                  <label>Prise en charge à déduire (€)</label>
-                  <input value={current.priseEnCharge} onChange={(e) => update({ priseEnCharge: e.target.value })} placeholder="0.00" />
-                </div>
               </div>
             </div>
 
