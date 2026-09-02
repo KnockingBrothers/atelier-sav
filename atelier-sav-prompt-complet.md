@@ -82,19 +82,23 @@ Ne pas utiliser `localStorage` directement dans le composant React. À la place 
 ## Fonctionnalités détaillées
 
 ### 1. CRUD de base
-- Liste des fiches en cartes (grille), style étiquette d'atelier : encoche en haut façon tag suspendu, liseré coloré sur le bord droit selon `etat` (Excellent/Bon = vert, Moyen = ambre, Mauvais = rouge, Autres = gris).
-- Formulaire de création/édition en plusieurs sections : Informations client, Appareil (dont Panne constatée puis, juste en dessous, un champ **Diagnostic / Intervention** — saisie affichée en **rouge `#FF0000`** dans l'app, mais toujours en noir à l'impression), Accessoires laissés, État du matériel, Check-up SAV, Tarification, Remarque précision.
+- Liste des fiches en cartes (grille), style étiquette d'atelier : encoche en haut façon tag suspendu, **liseré coloré sur le bord droit qui suit la couleur du STATUT de la fiche** (table `STATUT_COLOR`, voir section 2 — pas la couleur de l'état du matériel).
+- Formulaire de création/édition en plusieurs sections, **dans cet ordre exact** : Informations client, Appareil (dont Panne constatée puis, juste en dessous, un champ **Diagnostic / Intervention** — saisie affichée en **rouge `#FF0000`** dans l'app, mais toujours en noir à l'impression), **Tarification** (Total et Prise en charge à déduire), Accessoires laissés, État du matériel, Check-up SAV, Remarque précision.
+- Dans les champs **Total** et **Prise en charge à déduire** : si le texte saisi contient "ko" (insensible à la casse), l'afficher en rouge ; si il contient "ok", l'afficher en vert ; sinon ne pas changer la couleur ("ko" prioritaire si les deux apparaissent). Ne s'applique qu'à l'écran, jamais à l'impression.
 - **Nom et Téléphone obligatoires** : astérisque rouge dans le label, bordure rouge + message d'erreur sous le champ dès qu'on le quitte vide (`onBlur`), bouton "Enregistrer" désactivé tant que l'un des deux manque.
 - Suppression avec confirmation (modale), possible directement depuis la carte de la liste (icône poubelle) ou depuis la fiche ouverte.
+- Sur chaque carte de la liste, une rangée de mini-icônes cliquables (sans ouvrir la fiche) : imprimer l'étiquette, supprimer (avec confirmation), et archiver/désarchiver (icône qui bascule selon l'état `archived` de la fiche — pas de bouton "Archivage" dans la fiche ouverte elle-même, seulement "Désarchiver" quand elle est déjà archivée).
 
-### 2. Statuts et archivage automatique
+### 2. Statuts, couleurs et archivage automatique
 - 7 statuts, dans cet ordre exact : Reçu, En cours, Attente retour client, Attente pièces, Prêt, **Appel/SMS**, Restitué.
-- Couleur du badge de statut sur chaque carte de la liste, via une table de correspondance `STATUT_COLOR` : Reçu = gris (texte atténué), En cours = ambre, **Attente retour client = rouge**, **Attente pièces = rouge**, **Prêt = vert**, **Appel/SMS = `#C5F527`** (vert-jaune fluo, hex exact), Restitué = vert.
+- Table de correspondance `STATUT_COLOR` utilisée à la fois pour le badge de statut sur la carte ET pour le liseré coloré du bord droit de la carte : Reçu = gris (texte atténué), En cours = ambre, **Attente retour client = rouge**, **Attente pièces = rouge**, **Prêt = vert**, **Appel/SMS = `#C5F527`** (vert-jaune fluo, hex exact), Restitué = vert.
+- Les onglets de filtrage (Toutes, un par statut, Archivées) affichent, quand sélectionnés, une ombre portée et une bordure dans la couleur correspondante (fonction `tabColor` : ambre pour "Toutes", gris pour "Archivées", sinon `STATUT_COLOR` du statut).
 - Onglets de filtrage en haut de liste avec compteur par statut, plus "Toutes".
 - Quand une fiche passe au statut "Restitué", enregistrer `restituedAt = Date.now()`. Si le statut change à nouveau, remettre `restituedAt = null` et `archived = false`.
 - À chaque synchronisation (voir section 3), vérifier les fiches "Restitué" non archivées dont `Date.now() - restituedAt >= 24h` : les marquer `archived = true, archivedAt = Date.now()` et persister.
-- Les fiches archivées disparaissent des onglets normaux. Un onglet supplémentaire **"Archivées"** les affiche, **triées par ordre alphabétique du nom du client** (pas par date, contrairement au reste de l'app).
-- Bouton "Désarchiver" (icône dédiée sur la carte + bouton dans la fiche ouverte) qui remet `archived = false`, `archivedAt = null`, et réinitialise `restituedAt = Date.now()` (pour redonner un délai de 24h plein si la fiche reste "Restitué").
+- Les fiches archivées disparaissent des onglets normaux. Un onglet supplémentaire **"Archivées"** les affiche, **classées par mois puis par jour** (regroupement hiérarchique basé sur `archivedAt`, du plus récent au plus ancien, avec un titre de mois et des sous-titres de jour), et à l'intérieur d'un même jour triées par ordre alphabétique du nom du client.
+- **Suppression définitive automatique** : à chaque synchronisation, toute fiche archivée depuis plus de **367 jours** (`Date.now() - archivedAt >= 367 * 24h`) est supprimée définitivement de la base (pas juste masquée) — c'est irréversible, contrairement à l'archivage.
+- Bouton "Désarchiver" (icône dédiée sur la carte + bouton dans la fiche ouverte) qui remet `archived = false`, `archivedAt = null`, et réinitialise `restituedAt = Date.now()` (pour redonner un délai de 24h plein si la fiche reste "Restitué"). L'archivage manuel (sans attendre les 24h) se fait uniquement via l'icône sur la carte de la liste, pas depuis la fiche ouverte.
 
 ### 3. Synchronisation multi-poste
 - Au chargement de la liste et toutes les 8 secondes (tant qu'on est sur l'écran liste), recharger toutes les fiches depuis le serveur.
@@ -169,6 +173,12 @@ Affiché en italique, en petit, sous une ligne de séparation, à 3 endroits : b
 - Texte : "Créé par Serge Mata avec Claude AI — V: {version}"
 - `{version}` = date/heure de compilation au format `AAAAMMJJ-HHMM`, injectée par Vite (`define: { __BUILD_DATE__: JSON.stringify(new Date().toISOString()) }` dans `vite.config.js`), lue côté app via `typeof __BUILD_DATE__ !== "undefined"` avec repli sur `"dev"` si absent (utile pour un aperçu hors build Vite).
 
+### 13. Sauvegarde et restauration de la base de données (scripts serveur, hors app React)
+- `backup.sh` : script bash exécutable à la racine du projet. Utilise `sqlite3 "$DB_FILE" ".backup '$BACKUP_FILE'"` (API de sauvegarde native SQLite, sûre même si le serveur écrit en même temps — pas un simple `cp`), compresse le résultat en `.gz`, horodate le nom de fichier, stocke dans `~/atelier-sav-backups/` (en dehors du dossier du projet). **Rotation par nombre de sauvegardes** (pas par ancienneté) : ne conserve que les 30 sauvegardes les plus récentes (`ls -1t ... | tail -n +31 | xargs -r rm`), la plus ancienne est supprimée dès qu'une 31e est créée. Variables `APP_DIR`, `DB_FILE`, `BACKUP_DIR`, `KEEP_COUNT` (=30) configurables en tête de fichier. Contient une ligne `rsync` commentée pour copier aussi les sauvegardes vers une autre machine (protection contre panne de disque/matériel).
+- `restore.sh` : sans argument, liste les sauvegardes disponibles (les plus récentes en premier). Avec un nom de fichier en argument, demande confirmation, arrête l'app (`pm2 stop`), fait une copie de sécurité de la base actuelle avant de l'écraser, décompresse et restaure la sauvegarde choisie, puis redémarre l'app (`pm2 restart`).
+- Documenté dans le README : installer `sqlite3` (`sudo apt install -y sqlite3`), programmer une exécution quotidienne via `crontab -e` (ex. `0 2 * * * /home/UTILISATEUR/atelier-sav/backup.sh >> /home/UTILISATEUR/atelier-sav-backups/backup.log 2>&1`).
+- `.gitignore` exclut aussi les sauvegardes (`atelier-sav-backups/`, `*.db.gz`, `server/*.db.avant-restauration-*`) — mêmes données sensibles que la base elle-même.
+
 ## Design (à respecter précisément)
 
 - Palette : fond graphite très sombre (`#14171B`/`#1D2126`/`#262B32`), bordures `#383F48`, accent ambre `#E8A33D`, vert succès `#4FB08A`, rouge danger `#E2604F`, texte clair `#EDEFF2`, texte atténué `#8B93A1`.
@@ -180,9 +190,11 @@ Affiché en italique, en petit, sous une ligne de séparation, à 3 endroits : b
 
 ```
 atelier-sav/
-├── .gitignore              # exclut node_modules/, dist/, server/*.db
+├── .gitignore              # exclut node_modules/, dist/, server/*.db, sauvegardes
 ├── README.md
 ├── deploy.sh                # rsync + npm install + build + pm2 restart, variables à configurer en tête
+├── backup.sh                 # sauvegarde SQLite compressée et horodatée, rotation sur les 30 dernières
+├── restore.sh                 # restauration d'une sauvegarde, avec copie de sécurité avant écrasement
 ├── index.html
 ├── package.json
 ├── vite.config.js           # proxy /api vers :3001 en dev, define __BUILD_DATE__, manualChunks vendor (react/react-dom/lucide-react)
@@ -190,7 +202,7 @@ atelier-sav/
 │   └── server.js             # Express : API storage (GET/PUT/DELETE /api/storage/:key, GET /api/storage?prefix=) + sert dist/
 └── src/
     ├── main.jsx               # importe storageShim puis monte App
-    ├── App.jsx                # tout le code applicatif (composant unique, ~1500 lignes)
+    ├── App.jsx                # tout le code applicatif (composant unique, ~1700 lignes)
     └── storageShim.js         # window.storage → fetch vers l'API du serveur
 ```
 
