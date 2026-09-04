@@ -4,7 +4,17 @@ Application de gestion des fiches de prise en charge SAV (client, appareil, chec
 
 ## Prérequis
 
-- [Node.js](https://nodejs.org) version 18 ou plus (inclut npm)
+- **Node.js** version 18 ou plus. Sur Ubuntu Server ou Raspberry Pi (Raspberry Pi OS), installez la version LTS via NodeSource :
+  ```bash
+  sudo apt install -y curl
+  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+  sudo apt install -y nodejs
+  ```
+  Cette méthode installe déjà npm avec Node.js. Si besoin de l'installer séparément (autre méthode d'installation, ou si `npm` manque après coup) :
+  ```bash
+  sudo apt install -y npm
+  ```
+  Vérifiez ensuite avec `node -v` et `npm -v`.
 - Sur Ubuntu Server, `better-sqlite3` compile un petit module natif à l'installation. Si `npm install` échoue à cette étape, installez d'abord les outils de compilation :
   ```bash
   sudo apt install -y build-essential python3
