@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, ChevronDown, AlertCircle, Loader2, Tag, ArchiveRestore, Archive } from "lucide-react";
+import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, ChevronDown, AlertCircle, Loader2, Tag, ArchiveRestore, Archive, MessageSquare } from "lucide-react";
 // jsPDF n'est plus importé ici en statique : il est chargé à la demande
 // (voir generateTicketPDF) pour éviter d'alourdir le chargement initial
 // de l'application avec une librairie utilisée seulement à l'impression.
@@ -47,6 +47,75 @@ const SERVICE_COLOR = {
 };
 
 const SERVICES = ["Informatique", "Téléphonie"];
+
+// ── Fonctionnalité SMS (minimaliste, Android + Google Messages uniquement) ──
+// Atelier SAV ne fait que préparer le message et ouvrir l'application SMS
+// par défaut du téléphone via le schéma d'URL standard "sms:" — il n'envoie
+// jamais rien lui-même, ne lit et ne stocke aucun historique de conversation.
+// Note technique : une page web ne peut pas vérifier que "Google Messages"
+// précisément est l'application utilisée (c'est un réglage du téléphone,
+// pas quelque chose d'accessible au navigateur) ; on cible donc Android de
+// façon fiable, et on s'appuie sur le fait que Google Messages est
+// l'application SMS par défaut sur la grande majorité des téléphones Android.
+function isAndroidDevice() {
+  return typeof navigator !== "undefined" && /android/i.test(navigator.userAgent || "");
+}
+
+const SMS_TEMPLATES = [
+  {
+    key: "pret",
+    label: "Appareil prêt",
+    body: "Votre appareil est prêt à être récupéré.",
+    contactLine: true,
+  },
+  {
+    key: "pieces",
+    label: "En attente de pièces",
+    body: "Votre appareil est actuellement en attente de pièces nécessaires à son intervention. Nous vous tiendrons informé dès que nous pourrons poursuivre les travaux.",
+    contactLine: true,
+  },
+  {
+    key: "accord",
+    label: "Besoin d'informations / accord client",
+    body: "Nous avons besoin de vous contacter concernant votre appareil. Merci de nous contacter au magasin au {companyPhone}.",
+    contactLine: false,
+  },
+  {
+    key: "devis",
+    label: "Devis / accord nécessaire",
+    body: "Nous avons besoin de votre accord concernant l'intervention sur votre appareil. Merci de nous contacter au magasin au {companyPhone}.",
+    contactLine: false,
+  },
+  {
+    key: "rappel",
+    label: "Rappel de récupération",
+    body: "Votre appareil est disponible au magasin et reste en attente de récupération. Merci de nous contacter au {companyPhone} si nécessaire.",
+    contactLine: false,
+  },
+  { key: "custom", label: "Message personnalisé" },
+];
+
+function buildSmsMessage(templateKey, customText, config) {
+  const companyName = (config.companyName || "").trim();
+  const companyPhone = (config.companyPhone || "").trim();
+  if (templateKey === "custom") {
+    const text = (customText || "").trim();
+    return `${text}\n\n${companyName}\n${companyPhone}`.trim();
+  }
+  const tpl = SMS_TEMPLATES.find((t) => t.key === templateKey);
+  if (!tpl) return "";
+  const body = tpl.body.replace("{companyPhone}", companyPhone);
+  const contactLine = tpl.contactLine
+    ? `Pour plus d'informations, veuillez nous contacter au magasin au ${companyPhone}.\n\n`
+    : "";
+  return `Bonjour,\n\n${body}\n\n${companyName} vous remercie pour votre confiance.\n\n${contactLine}Nous vous remercions.`;
+}
+
+function openSms(phone, message) {
+  const cleanPhone = String(phone || "").replace(/\s+/g, "");
+  const url = `sms:${cleanPhone}?body=${encodeURIComponent(message)}`;
+  window.location.href = url;
+}
 
 // Couleur de mise en avant des onglets de filtre (dont "Toutes" et
 // "Archivées", qui n'ont pas de couleur de statut propre).
@@ -618,6 +687,11 @@ export default function App() {
   const [printMode, setPrintMode] = useState("ticket");
   const [labelPreset, setLabelPreset] = useState("50x30");
   const [labelSize, setLabelSize] = useState({ w: 50, h: 30 });
+  const [companyConfig, setCompanyConfig] = useState({ companyName: "", companyPhone: "" });
+  const [companyFormDraft, setCompanyFormDraft] = useState({ companyName: "", companyPhone: "" });
+  const [smsModalOpen, setSmsModalOpen] = useState(false);
+  const [smsStep, setSmsStep] = useState("templates");
+  const [smsCustomText, setSmsCustomText] = useState("");
   const [lastSync, setLastSync] = useState(null);
   const [syncing, setSyncing] = useState(false);
   const [syncTick, setSyncTick] = useState(0);
@@ -688,6 +762,13 @@ export default function App() {
             setLabelSize({ w: parsed.w, h: parsed.h });
             setLabelPreset(parsed.preset || "custom");
           }
+        }
+      } catch {}
+      try {
+        const savedConfig = await window.storage.get("sav:config");
+        if (savedConfig && savedConfig.value) {
+          const parsed = JSON.parse(savedConfig.value);
+          setCompanyConfig({ companyName: parsed.companyName || "", companyPhone: parsed.companyPhone || "" });
         }
       } catch {}
       setLoading(false);
@@ -1033,6 +1114,44 @@ export default function App() {
     window.storage.set("sav:labelsize", JSON.stringify({ ...dims, preset: "custom" })).catch(() => {});
   };
 
+  const openSmsModal = () => {
+    setCompanyFormDraft(companyConfig);
+    setSmsCustomText("");
+    setSmsStep(companyConfig.companyName && companyConfig.companyPhone ? "templates" : "setup");
+    setSmsModalOpen(true);
+  };
+
+  const saveCompanyConfig = async () => {
+    const cfg = {
+      companyName: companyFormDraft.companyName.trim(),
+      companyPhone: companyFormDraft.companyPhone.trim(),
+    };
+    if (!cfg.companyName || !cfg.companyPhone) return;
+    try {
+      await window.storage.set("sav:config", JSON.stringify(cfg));
+      setCompanyConfig(cfg);
+      setSmsStep("templates");
+    } catch {
+      setError("Échec de l'enregistrement des informations du magasin. Réessayez.");
+    }
+  };
+
+  const sendSmsTemplate = (key) => {
+    if (key === "custom") {
+      setSmsStep("custom");
+      return;
+    }
+    const message = buildSmsMessage(key, "", companyConfig);
+    openSms(current.telephone, message);
+    setSmsModalOpen(false);
+  };
+
+  const sendCustomSms = () => {
+    const message = buildSmsMessage("custom", smsCustomText, companyConfig);
+    openSms(current.telephone, message);
+    setSmsModalOpen(false);
+  };
+
   const renderCard = (t) => (
     <div key={t.id} className="sav-card" onClick={() => openEdit(t)}>
       <div className="notch" />
@@ -1196,6 +1315,14 @@ export default function App() {
         .sav-error { display:flex; align-items:center; gap:8px; background:rgba(226,96,79,0.12); border:1px solid var(--red); color:#F5B8B0; padding:10px 14px; border-radius:8px; font-size:13px; margin:0 24px 12px; }
         .sav-confirm { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:50; border-radius:14px; }
         .sav-confirm-box { background:var(--graphite-900); border:1px solid var(--line); border-radius:12px; padding:20px 22px; max-width:320px; }
+        .sav-sms-box { width:320px; max-width:90vw; text-align:left; }
+        .sav-sms-title { font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:0.03em; font-size:14px; margin:0 0 14px; color:var(--text); }
+        .sav-sms-list { display:flex; flex-direction:column; gap:8px; margin-bottom:4px; }
+        .sav-sms-item { text-align:left; padding:10px 12px; border-radius:7px; border:1px solid var(--line); background:var(--graphite-800); color:var(--text); font-size:13px; cursor:pointer; }
+        .sav-sms-item:hover { border-color:var(--amber); color:var(--amber); }
+        .sav-sms-edit-company { background:none; border:none; color:var(--text-muted); font-size:11px; text-decoration:underline; cursor:pointer; padding:6px 0 0; }
+        .sav-sms-textarea { width:100%; min-height:100px; background:var(--graphite-800); border:1px solid var(--line); border-radius:7px; padding:8px 10px; color:var(--text); font-size:13px; font-family:inherit; resize:vertical; margin-top:4px; }
+        .sav-sms-hint { font-size:11px; color:var(--text-muted); margin:6px 0 14px; }
         .sav-confirm-box p { font-size:14px; margin:0 0 16px; }
         .sav-confirm-box .row { display:flex; gap:8px; justify-content:flex-end; }
         .sav-loading { display:flex; align-items:center; justify-content:center; gap:8px; padding:60px; color:var(--text-muted); }
@@ -1268,7 +1395,7 @@ export default function App() {
               )}
             </div>
             <div className="sav-tabs">
-              {["Toutes", ...SERVICES, ...STATUTS, "Archivées"].map((s) => {
+              {["Toutes", "Reçu", ...SERVICES, ...STATUTS.filter((s) => s !== "Reçu"), "Archivées"].map((s) => {
                 const color = tabColor(s);
                 const isActive = statutFilter === s;
                 return (
@@ -1690,6 +1817,15 @@ export default function App() {
                   </>
                 )}
               </div>
+              {current.id &&
+                isAndroidDevice() &&
+                current.statut === "Appel/SMS" &&
+                current.telephone &&
+                current.telephone.trim() && (
+                  <button className="sav-btn" onClick={openSmsModal} title="Ouvre l'application SMS avec le message prérempli">
+                    <MessageSquare size={15} /> SMS
+                  </button>
+                )}
             </div>
             <div className="sav-actions-right">
               <button className="sav-btn" onClick={backToList}>Annuler</button>
@@ -1709,6 +1845,86 @@ export default function App() {
               <button className="sav-btn" onClick={() => setConfirmDelete(null)}>Annuler</button>
               <button className="sav-btn danger" onClick={() => deleteTicket(confirmDelete)}>Supprimer</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {smsModalOpen && (
+        <div className="sav-confirm" onClick={() => setSmsModalOpen(false)}>
+          <div className="sav-confirm-box sav-sms-box" onClick={(e) => e.stopPropagation()}>
+            {smsStep === "setup" && (
+              <>
+                <h3 className="sav-sms-title">Informations du magasin</h3>
+                <div className="sav-field">
+                  <label>Nom du magasin</label>
+                  <input
+                    value={companyFormDraft.companyName}
+                    onChange={(e) => setCompanyFormDraft((d) => ({ ...d, companyName: e.target.value }))}
+                    placeholder="Nom du magasin"
+                  />
+                </div>
+                <div className="sav-field" style={{ marginTop: 10 }}>
+                  <label>Téléphone du magasin</label>
+                  <input
+                    value={companyFormDraft.companyPhone}
+                    onChange={(e) => setCompanyFormDraft((d) => ({ ...d, companyPhone: e.target.value }))}
+                    placeholder="Téléphone du magasin"
+                  />
+                </div>
+                <div className="row" style={{ marginTop: 16 }}>
+                  <button className="sav-btn" onClick={() => setSmsModalOpen(false)}>Annuler</button>
+                  <button
+                    className="sav-btn primary"
+                    onClick={saveCompanyConfig}
+                    disabled={!companyFormDraft.companyName.trim() || !companyFormDraft.companyPhone.trim()}
+                  >
+                    Enregistrer
+                  </button>
+                </div>
+              </>
+            )}
+            {smsStep === "templates" && (
+              <>
+                <h3 className="sav-sms-title">Choisir un message</h3>
+                <div className="sav-sms-list">
+                  {SMS_TEMPLATES.map((t) => (
+                    <button key={t.key} className="sav-sms-item" onClick={() => sendSmsTemplate(t.key)}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="row" style={{ justifyContent: "space-between", marginTop: 4 }}>
+                  <button
+                    className="sav-sms-edit-company"
+                    onClick={() => {
+                      setCompanyFormDraft(companyConfig);
+                      setSmsStep("setup");
+                    }}
+                  >
+                    Modifier les informations du magasin
+                  </button>
+                  <button className="sav-btn" onClick={() => setSmsModalOpen(false)}>Fermer</button>
+                </div>
+              </>
+            )}
+            {smsStep === "custom" && (
+              <>
+                <h3 className="sav-sms-title">Message personnalisé</h3>
+                <textarea
+                  className="sav-sms-textarea"
+                  value={smsCustomText}
+                  onChange={(e) => setSmsCustomText(e.target.value)}
+                  placeholder="Rédigez votre message..."
+                />
+                <p className="sav-sms-hint">Le nom et le téléphone du magasin seront ajoutés automatiquement à la fin.</p>
+                <div className="row">
+                  <button className="sav-btn" onClick={() => setSmsStep("templates")}>Retour</button>
+                  <button className="sav-btn primary" onClick={sendCustomSms} disabled={!smsCustomText.trim()}>
+                    Ouvrir l'application SMS
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}

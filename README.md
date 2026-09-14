@@ -2,6 +2,10 @@
 
 Application de gestion des fiches de prise en charge SAV (client, appareil, check-up, tarification), avec base de données partagée : toutes les fiches sont centralisées sur le serveur et visibles depuis tous les postes du réseau.
 
+**Licence :** [AGPL v3](LICENSE) — voir la section [Licence](#licence) plus bas.
+
+**Version :** V14092026
+
 ## Prérequis
 
 - **Node.js** version 18 ou plus. Sur Ubuntu Server ou Raspberry Pi (Raspberry Pi OS), installez la version LTS via NodeSource :
@@ -145,15 +149,35 @@ pm2 restart atelier-sav
 
 ```
 atelier-sav/
-├── index.html
+├── LICENSE                 texte complet de la licence AGPL v3
+├── VERSION                  identifiant de version courant (V14092026)
+├── .gitignore              exclut node_modules/, dist/, server/*.db, sauvegardes
+├── README.md
 ├── package.json
 ├── vite.config.js
+├── deploy.sh                script de mise à jour automatisée (à configurer)
+├── backup.sh                 sauvegarde de la base de données (rotation sur les 30 dernières)
+├── restore.sh                 restauration d'une sauvegarde
+├── index.html
 ├── server/
-│   ├── server.js         API Express + service de l'application construite
-│   └── atelier-sav.db    base de données (créée automatiquement au premier lancement)
-├── deploy.sh              script de mise à jour automatisée (à configurer)
+│   ├── server.js             API Express + service de l'application construite
+│   └── atelier-sav.db        base de données (créée automatiquement au premier lancement, jamais publiée)
 └── src/
-    ├── main.jsx           point d'entrée
-    ├── App.jsx             l'application (formulaire + liste + impression)
-    └── storageShim.js      pont entre l'application et l'API du serveur
+    ├── main.jsx               point d'entrée
+    ├── App.jsx                 l'application (formulaire + liste + impression)
+    └── storageShim.js          pont entre l'application et l'API du serveur
 ```
+
+## Licence
+
+Ce projet est distribué sous licence **[GNU Affero General Public License v3.0 (AGPL-3.0)](LICENSE)**, ou toute version ultérieure au choix de l'utilisateur.
+
+En résumé (ceci ne remplace pas le texte complet de la licence, voir le fichier [`LICENSE`](LICENSE)) :
+
+- Vous pouvez utiliser, modifier et redistribuer ce logiciel librement.
+- Si vous distribuez une version modifiée, elle doit rester sous la même licence (copyleft).
+- **Particularité de l'AGPL par rapport à une GPL classique** : si vous faites tourner une version modifiée de ce logiciel accessible par un réseau (par exemple en l'hébergeant comme service pour des tiers), vous devez proposer aux utilisateurs de ce service le code source correspondant. Pour un usage interne classique (l'atelier utilise sa propre instance sur son propre réseau, sans la proposer à des tiers), cette clause n'a pas d'effet pratique.
+- Le logiciel est fourni **sans aucune garantie**, dans les limites permises par la loi.
+
+Copyright © Serge Mata.
+

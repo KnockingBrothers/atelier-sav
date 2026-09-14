@@ -1,8 +1,10 @@
 {
   "name": "atelier-sav",
   "private": true,
-  "version": "1.0.0",
+  "version": "2026.9.14",
   "type": "module",
+  "license": "AGPL-3.0-or-later",
+  "author": "Serge Mata",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
