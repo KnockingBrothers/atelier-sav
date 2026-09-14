@@ -44,9 +44,10 @@ const STATUT_COLOR = {
 const SERVICE_COLOR = {
   "Informatique": "royalblue",
   "Téléphonie": "seagreen",
+  "Imprimante": "chocolate",
 };
 
-const SERVICES = ["Informatique", "Téléphonie"];
+const SERVICES = ["Informatique", "Téléphonie", "Imprimante"];
 
 // ── Fonctionnalité SMS (minimaliste, Android + Google Messages uniquement) ──
 // Atelier SAV ne fait que préparer le message et ouvrir l'application SMS
@@ -1547,6 +1548,7 @@ export default function App() {
                     <option value="">-</option>
                     <option value="Informatique" style={{ color: SERVICE_COLOR["Informatique"] }}>Informatique</option>
                     <option value="Téléphonie" style={{ color: SERVICE_COLOR["Téléphonie"] }}>Téléphonie</option>
+                    <option value="Imprimante" style={{ color: SERVICE_COLOR["Imprimante"] }}>Imprimante</option>
                   </select>
                 </div>
                 <div className="sav-field">
