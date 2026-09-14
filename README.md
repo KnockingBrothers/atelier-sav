@@ -1,5 +1,11 @@
 # Atelier — Prise en charge
 
+> Il n'existait pas de logiciel qui collait à mon atelier.
+> Alors je l'ai écrit.
+> Le SAV, sans le papier qui se perd.
+
+Atelier SAV remplace le formulaire papier de prise en charge par une application partagée entre plusieurs postes, sans dépendre d'un logiciel généraliste mal adapté à un atelier de réparation informatique et téléphonie.
+
 Application de gestion des fiches de prise en charge SAV (client, appareil, check-up, tarification), avec base de données partagée : toutes les fiches sont centralisées sur le serveur et visibles depuis tous les postes du réseau.
 
 **Licence :** [AGPL v3](LICENSE) — voir la section [Licence](#licence) plus bas.
