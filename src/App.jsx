@@ -5,6 +5,7 @@ import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, Ch
 // de l'application avec une librairie utilisée seulement à l'impression.
 
 const LABEL_PRESETS = [
+  { id: "pos80", label: "POS80", w: 80, h: 60 },
   { id: "50x30", label: "50 × 30 mm", w: 50, h: 30 },
   { id: "40x30", label: "40 × 30 mm", w: 40, h: 30 },
   { id: "62x29", label: "62 × 29 mm (Brother DK)", w: 62, h: 29 },
@@ -97,20 +98,37 @@ const SMS_TEMPLATES = [
   { key: "custom", label: "Message personnalisé" },
 ];
 
+// Selon le statut de la fiche, seuls certains messages prédéfinis sont
+// proposés dans le menu SMS (voir demande spécifique) :
+// - "Appel/SMS" : les 6 messages (comportement d'origine)
+// - "Attente retour client" : uniquement Besoin d'infos/accord (3), Devis/accord (4), Message personnalisé (6)
+// - "Attente pièces" : uniquement En attente de pièces (2), Message personnalisé (6)
+const SMS_TEMPLATE_KEYS_BY_STATUS = {
+  "Appel/SMS": ["pret", "pieces", "accord", "devis", "rappel", "custom"],
+  "Attente retour client": ["accord", "devis", "custom"],
+  "Attente pièces": ["pieces", "custom"],
+};
+
+function getSmsTemplatesForStatus(statut) {
+  const keys = SMS_TEMPLATE_KEYS_BY_STATUS[statut];
+  if (!keys) return SMS_TEMPLATES;
+  return SMS_TEMPLATES.filter((t) => keys.includes(t.key));
+}
+
 function buildSmsMessage(templateKey, customText, config) {
   const companyName = (config.companyName || "").trim();
   const companyPhone = (config.companyPhone || "").trim();
   if (templateKey === "custom") {
     const text = (customText || "").trim();
-    return `${text}\n\n${companyName}\n${companyPhone}`.trim();
+    return `${text} ${companyName} ${companyPhone}`.trim();
   }
   const tpl = SMS_TEMPLATES.find((t) => t.key === templateKey);
   if (!tpl) return "";
   const body = tpl.body.replace("{companyPhone}", companyPhone);
   const contactLine = tpl.contactLine
-    ? `Pour plus d'informations, veuillez nous contacter au magasin au ${companyPhone}.\n\n`
+    ? `Pour plus d'informations, veuillez nous contacter au magasin au ${companyPhone}. `
     : "";
-  return `Bonjour,\n\n${body}\n\n${companyName} vous remercie pour votre confiance.\n\n${contactLine}Nous vous remercions.`;
+  return `Bonjour, ${body} ${companyName} vous remercie pour votre confiance. ${contactLine}Nous vous remercions.`;
 }
 
 function openSms(phone, message) {
@@ -687,8 +705,8 @@ export default function App() {
   const [lastAutoSave, setLastAutoSave] = useState(null);
   const [autoSaving, setAutoSaving] = useState(false);
   const [printMode, setPrintMode] = useState("ticket");
-  const [labelPreset, setLabelPreset] = useState("50x30");
-  const [labelSize, setLabelSize] = useState({ w: 50, h: 30 });
+  const [labelPreset, setLabelPreset] = useState("pos80");
+  const [labelSize, setLabelSize] = useState({ w: 80, h: 60 });
   const [companyConfig, setCompanyConfig] = useState({ companyName: "", companyPhone: "" });
   const [companyFormDraft, setCompanyFormDraft] = useState({ companyName: "", companyPhone: "" });
   const [smsModalOpen, setSmsModalOpen] = useState(false);
@@ -1823,7 +1841,7 @@ export default function App() {
               </div>
               {current.id &&
                 isAndroidDevice() &&
-                current.statut === "Appel/SMS" &&
+                SMS_TEMPLATE_KEYS_BY_STATUS[current.statut] &&
                 current.telephone &&
                 current.telephone.trim() && (
                   <button className="sav-btn" onClick={openSmsModal} title="Ouvre l'application SMS avec le message prérempli">
@@ -1891,7 +1909,7 @@ export default function App() {
               <>
                 <h3 className="sav-sms-title">Choisir un message</h3>
                 <div className="sav-sms-list">
-                  {SMS_TEMPLATES.map((t) => (
+                  {getSmsTemplatesForStatus(current.statut).map((t) => (
                     <button key={t.key} className="sav-sms-item" onClick={() => sendSmsTemplate(t.key)}>
                       {t.label}
                     </button>
@@ -2046,12 +2064,19 @@ export default function App() {
           })()}
           <div className="lbl-nom">{current.nom || "Sans nom"}</div>
           <div className="lbl-modele">{current.marqueModele}</div>
-          {current.ean14 && (
-            <div className="lbl-barcode">
-              <Barcode digits={current.ean14} widthMm={32} heightMm={7} />
-              <div className="lbl-ean-digits">{current.ean14}</div>
-            </div>
-          )}
+          {current.ean14 && (() => {
+            // La taille du code-barres s'adapte à la largeur du format
+            // choisi (ex. plus grand et lisible sur un POS80 de 80mm,
+            // plus compact sur une petite étiquette de 40mm).
+            const barcodeW = Math.max(28, Math.min(labelSize.w * 0.55, 60));
+            const barcodeH = Math.round(barcodeW * 0.22 * 10) / 10;
+            return (
+              <div className="lbl-barcode">
+                <Barcode digits={current.ean14} widthMm={barcodeW} heightMm={barcodeH} />
+                <div className="lbl-ean-digits">{current.ean14}</div>
+              </div>
+            );
+          })()}
         </div>
       )}
     </div>

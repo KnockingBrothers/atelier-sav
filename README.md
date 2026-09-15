@@ -73,6 +73,35 @@ npm run dev      # interface sur le port 5173, avec proxy vers l'API
 
 Les fiches sont maintenant stockées dans une base **SQLite** côté serveur (`server/atelier-sav.db`), pas dans le navigateur. Tous les postes qui se connectent à l'adresse du serveur voient et modifient les mêmes fiches en temps réel.
 
+## Fonctionnalité SMS
+
+Un bouton **SMS** permet de prévenir un client par message, sans quitter l'application.
+
+### Où il apparaît
+
+Le bouton n'est visible **que si toutes ces conditions sont réunies** :
+- Vous consultez l'application depuis un **téléphone ou une tablette Android** (il est invisible sur PC, Windows, Mac, iPhone...).
+- La fiche a l'un de ces statuts : **Appel/SMS**, **Attente retour client**, ou **Attente pièces**.
+- Le téléphone du client est renseigné sur la fiche.
+
+### Ce qu'il propose
+
+Selon le statut de la fiche, un choix de messages prédéfinis s'affiche :
+
+| Statut de la fiche | Messages proposés |
+|---|---|
+| **Appel/SMS** | Les 6 messages : Appareil prêt, En attente de pièces, Besoin d'informations/accord, Devis/accord, Rappel de récupération, Message personnalisé |
+| **Attente retour client** | Besoin d'informations/accord, Devis/accord, Message personnalisé |
+| **Attente pièces** | En attente de pièces, Message personnalisé |
+
+Chaque message est construit sur une seule ligne, avec le nom et le téléphone du magasin insérés automatiquement (configurés une seule fois au premier envoi, modifiables ensuite depuis la fenêtre SMS).
+
+### Comment ça fonctionne
+
+Un clic sur SMS puis sur un message ouvre l'application SMS par défaut du téléphone (généralement Google Messages sur Android), avec le numéro du client et le texte déjà prêts. **L'envoi reste toujours manuel** : Atelier SAV ne prépare que le message, c'est vous qui appuyez sur Envoyer.
+
+Aucun historique de conversation n'est lu, synchronisé ou stocké par Atelier SAV — la fonctionnalité se limite à préparer le message.
+
 ## Sauvegarde et restauration de la base de données
 
 Deux scripts sont fournis pour ne jamais perdre vos données.
