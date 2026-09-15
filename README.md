@@ -10,7 +10,7 @@ Application de gestion des fiches de prise en charge SAV (client, appareil, chec
 
 **Licence :** [AGPL v3](LICENSE) — voir la section [Licence](#licence) plus bas.
 
-**Version :** Version 261509
+**Version :** Version 261510
 
 ## Prérequis
 
@@ -185,7 +185,7 @@ pm2 restart atelier-sav
 ```
 atelier-sav/
 ├── LICENSE                 texte complet de la licence AGPL v3
-├── VERSION                  identifiant de version courant (Version 261509)
+├── VERSION                  identifiant de version courant (Version 261510)
 ├── .gitignore              exclut node_modules/, dist/, server/*.db, sauvegardes
 ├── README.md
 ├── package.json
