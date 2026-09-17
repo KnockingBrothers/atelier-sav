@@ -1,0 +1,30 @@
+# Dépendances (réinstallées via npm install)
+node_modules/
+
+# Build (régénéré via npm run build)
+dist/
+
+# Base de données — contient les données réelles des clients
+# (noms, téléphones, mots de passe d'appareils...). Ne JAMAIS publier.
+server/*.db
+server/*.db-journal
+server/*.db.avant-restauration-*
+
+# Sauvegardes de la base de données — mêmes données sensibles, jamais
+# publiées. Elles vivent normalement en dehors du dossier du projet
+# (voir backup.sh) mais on exclut par sécurité si jamais un dossier
+# de sauvegarde se retrouvait ici.
+atelier-sav-backups/
+*.db.gz
+
+# Logs
+npm-debug.log*
+*.log
+
+# Fichiers d'environnement / secrets éventuels
+.env
+.env.local
+
+# Fichiers système
+.DS_Store
+Thumbs.db
