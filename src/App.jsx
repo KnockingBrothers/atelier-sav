@@ -5,7 +5,7 @@ import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, Ch
 // de l'application avec une librairie utilisée seulement à l'impression.
 
 const LABEL_PRESETS = [
-  { id: "pos80", label: "POS80", w: 80, h: 60 },
+  { id: "pos80", label: "POS80", w: 100, h: 60 },
   { id: "50x30", label: "50 × 30 mm", w: 50, h: 30 },
   { id: "40x30", label: "40 × 30 mm", w: 40, h: 30 },
   { id: "62x29", label: "62 × 29 mm (Brother DK)", w: 62, h: 29 },
@@ -157,21 +157,22 @@ function koOkColor(value) {
 }
 
 const CHECKUP_ITEMS = [
+  { key: "nettoyage", label: "Nettoyage" },
+  { key: "antivirus", label: "Antivirus" },
+  { key: "smart", label: "SMART" },
+  { key: "w11", label: "Windows" },
+  { key: "winget", label: "Winget" },
+  { key: "clone", label: "Clone" },
+  { key: "connecteur", label: "Connecteur" },
+  { key: "charge", label: "Charge" },
+  { key: "chargeurCk", label: "Chargeur" },
+  { key: "lcd", label: "Lcd" },
   { key: "hp", label: "HP" },
   { key: "ecouteur", label: "Écouteur" },
   { key: "mic1", label: "Mic 1" },
   { key: "mic2", label: "Mic 2" },
   { key: "camAv", label: "Cam av." },
   { key: "camArr", label: "Cam arr." },
-  { key: "lcd", label: "Lcd" },
-  { key: "connecteur", label: "Connecteur" },
-  { key: "charge", label: "Charge" },
-  { key: "chargeurCk", label: "Chargeur" },
-  { key: "antivirus", label: "Antivirus" },
-  { key: "nettoyage", label: "Nettoyage" },
-  { key: "clone", label: "Clone" },
-  { key: "smart", label: "SMART" },
-  { key: "w11", label: "Windows" },
 ];
 
 // Interventions à prévoir (switches "-" / "à faire" / "OK"), affichées
@@ -1375,7 +1376,7 @@ export default function App() {
           .sav-print-label .lbl-ean-digits { font-family:'IBM Plex Mono',monospace; font-size:5.5pt; letter-spacing:0.05em; margin-top:0.4mm; line-height:1; }
         }
         @page ticket { size:176mm 250mm; margin:0; }
-        @page label { size:${labelSize.w}mm ${labelSize.h}mm; margin:2mm; }
+        @page label { size:${labelPreset === "pos80" ? labelSize.h : labelSize.w}mm ${labelPreset === "pos80" ? labelSize.w : labelSize.h}mm; margin:2mm; }
       `}</style>
 
       {error && (
