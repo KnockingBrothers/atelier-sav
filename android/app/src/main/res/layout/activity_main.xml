@@ -1,0 +1,107 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="#1B1B1F">
+
+    <!-- WebView principale -->
+    <WebView
+        android:id="@+id/webview"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:visibility="gone" />
+
+    <!-- Bouton flottant pour lancer le scanner de codes-barres -->
+    <com.google.android.material.floatingactionbutton.FloatingActionButton
+        android:id="@+id/scan_fab"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="bottom|end"
+        android:layout_margin="24dp"
+        android:contentDescription="Scanner un code-barres"
+        android:src="@android:drawable/ic_menu_camera"
+        app:backgroundTint="#3D7FFF"
+        app:tint="#FFFFFF"
+        android:visibility="gone" />
+
+    <!-- Écran de saisie / configuration de l'IP -->
+    <LinearLayout
+        android:id="@+id/ip_input_layout"
+        android:orientation="vertical"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:gravity="center"
+        android:padding="32dp"
+        android:visibility="visible">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Atelier SAV"
+            android:textColor="#FFFFFF"
+            android:textSize="26sp"
+            android:textStyle="bold"
+            android:layout_marginBottom="8dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Adresse IP du serveur (port 3001 automatique)"
+            android:textColor="#AAAAAA"
+            android:textSize="14sp"
+            android:layout_marginBottom="24dp" />
+
+        <EditText
+            android:id="@+id/ip_edit_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="ex: 192.168.1.50"
+            android:textColorHint="#777777"
+            android:textColor="#FFFFFF"
+            android:inputType="text"
+            android:padding="12dp"
+            android:background="#2A2A2E"
+            android:layout_marginBottom="16dp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Fermeture auto. après inactivité (minutes)"
+            android:textColor="#AAAAAA"
+            android:textSize="13sp"
+            android:layout_marginBottom="8dp" />
+
+        <EditText
+            android:id="@+id/timeout_edit_text"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="ex: 2"
+            android:textColorHint="#777777"
+            android:textColor="#FFFFFF"
+            android:inputType="number"
+            android:padding="12dp"
+            android:background="#2A2A2E"
+            android:layout_marginBottom="16dp" />
+
+        <Button
+            android:id="@+id/save_ip_button"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="Se connecter"
+            android:backgroundTint="#3D7FFF"
+            android:textColor="#FFFFFF" />
+
+        <TextView
+            android:id="@+id/error_text"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text=""
+            android:textColor="#FF6B6B"
+            android:textSize="13sp"
+            android:layout_marginTop="16dp"
+            android:visibility="gone" />
+
+    </LinearLayout>
+
+</FrameLayout>

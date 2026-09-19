@@ -95,6 +95,12 @@ const SMS_TEMPLATES = [
     body: "Votre appareil est disponible au magasin et reste en attente de récupération. Merci de nous contacter au {companyPhone} si nécessaire.",
     contactLine: false,
   },
+  {
+    key: "irreparable",
+    label: "Réparation impossible",
+    body: "Suite au diagnostic de votre équipement, la réparation n'est malheureusement pas possible. Nous ne pouvons donc pas intervenir. Merci de nous contacter au {companyPhone} si nécessaire.",
+    contactLine: false,
+  },
   { key: "custom", label: "Message personnalisé" },
 ];
 
@@ -104,7 +110,7 @@ const SMS_TEMPLATES = [
 // - "Attente retour client" : uniquement Besoin d'infos/accord (3), Devis/accord (4), Message personnalisé (6)
 // - "Attente pièces" : uniquement En attente de pièces (2), Message personnalisé (6)
 const SMS_TEMPLATE_KEYS_BY_STATUS = {
-  "Appel/SMS": ["pret", "pieces", "accord", "devis", "rappel", "custom"],
+  "Appel/SMS": ["pret", "pieces", "accord", "devis", "rappel", "irreparable", "custom"],
   "Attente retour client": ["accord", "devis", "custom"],
   "Attente pièces": ["pieces", "custom"],
 };

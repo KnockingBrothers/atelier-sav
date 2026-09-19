@@ -102,6 +102,31 @@ Un clic sur SMS puis sur un message ouvre l'application SMS par défaut du tél�
 
 Aucun historique de conversation n'est lu, synchronisé ou stocké par Atelier SAV — la fonctionnalité se limite à préparer le message.
 
+## Atelier SAV — Application Android
+
+Application Android qui affiche l'app web Atelier SAV (hébergée sur le serveur local, port 3001) dans une WebView plein écran, avec quelques fonctionnalités natives ajoutées pour un usage en atelier.
+
+### Fonctionnalités
+
+- **Écran de connexion** : saisie unique de l'adresse IP du serveur (ex : `192.168.1.50`), conservée automatiquement au lancement suivant. Modifiable à tout moment par un appui long sur l'écran.
+- **Port fixe** : `3001`, codé en dur, pas besoin de le ressaisir.
+- **Vérification Wi-Fi** : si le Wi-Fi n'est pas connecté, l'appli affiche un message clair au lieu d'un écran blanc.
+- **Scanner de codes-barres** (bouton flottant, icône caméra) : utilise la caméra du téléphone (ML Kit, fonctionne hors-ligne) pour lire un code-barres et reproduit fidèlement le comportement d'une douchette USB — frappe rafale des chiffres + Entrée — afin d'ouvrir directement la fiche correspondante (`ean14`) sur l'écran liste.
+- **Liens `sms:` / `tel:` / `mailto:`** : interceptés et délégués aux applications externes du téléphone (Messages, Téléphone...), au lieu d'échouer dans la WebView.
+- **Écran maintenu allumé pendant l'édition d'une fiche** : via un pont JavaScript (`AndroidBridge.setKeepScreenOn`), l'écran ne s'éteint pas tant qu'une fiche client est ouverte, mais peut se mettre en veille normalement sur l'écran principal.
+- **Fermeture automatique après inactivité** : configurable (en minutes) directement depuis l'écran de connexion IP, 2 minutes par défaut.
+
+### Installation de l'application (fichier APK)
+
+Le code source de cette application Android se trouve dans le dossier [`android/`](android/) de ce dépôt. Le fichier `.apk` prêt à installer est disponible dans l'onglet **[Releases](../../releases)** du dépôt GitHub (pas besoin de compiler soi-même le code Android pour l'utiliser).
+
+1. Téléchargez le fichier `.apk` depuis la page Releases, directement depuis le navigateur du téléphone Android.
+2. Android bloque par défaut l'installation d'applications venant d'ailleurs que le Play Store. Au moment de l'installation, un message d'avertissement s'affiche (normal, l'application n'est pas publiée sur le Play Store et n'est pas signée par Google) — appuyez sur **"Installer quand même"** ou **"Paramètres"** puis activez **"Autoriser depuis cette source"** pour l'application utilisée pour le téléchargement (Chrome, Fichiers...).
+3. Une fois installée, ouvrez l'application : au premier lancement, elle demande l'adresse IP du serveur (ex. `192.168.1.50`) — le port `3001` est automatique, inutile de le saisir.
+4. Pour changer cette adresse IP plus tard (changement de serveur, nouvelle box...), faites un appui long n'importe où sur l'écran de connexion.
+
+Cet avertissement de sécurité est normal et attendu pour toute application installée en dehors du Play Store (on parle d'installation "en side-load") — il ne signifie pas que l'application est dangereuse, seulement qu'elle n'a pas été vérifiée par Google. Puisque vous contrôlez vous-même le code source (dossier `android/`) et sa provenance, ce mode d'installation est parfaitement adapté à un usage interne d'atelier.
+
 ## Sauvegarde et restauration de la base de données
 
 Deux scripts sont fournis pour ne jamais perdre vos données.
@@ -194,6 +219,7 @@ atelier-sav/
 ├── backup.sh                 sauvegarde de la base de données (rotation sur les 30 dernières)
 ├── restore.sh                 restauration d'une sauvegarde
 ├── index.html
+├── android/                 code source de l'application Android (WebView + scanner + pont natif)
 ├── server/
 │   ├── server.js             API Express + service de l'application construite
 │   └── atelier-sav.db        base de données (créée automatiquement au premier lancement, jamais publiée)
