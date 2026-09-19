@@ -90,7 +90,7 @@ Selon le statut de la fiche, un choix de messages prédéfinis s'affiche :
 
 | Statut de la fiche | Messages proposés |
 |---|---|
-| **Appel/SMS** | Les 6 messages : Appareil prêt, En attente de pièces, Besoin d'informations/accord, Devis/accord, Rappel de récupération, Message personnalisé |
+| **Appel/SMS** | Les 7 messages : Appareil prêt, En attente de pièces, Besoin d'informations/accord, Devis/accord, Rappel de récupération, Réparation impossible, Message personnalisé |
 | **Attente retour client** | Besoin d'informations/accord, Devis/accord, Message personnalisé |
 | **Attente pièces** | En attente de pièces, Message personnalisé |
 
