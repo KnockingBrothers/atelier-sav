@@ -47,9 +47,21 @@ const SERVICE_COLOR = {
   "Téléphonie": "seagreen",
   "Imprimante": "chocolate",
   "Tablette": "burlywood",
+  "Appeler le client": "white",
 };
 
 const SERVICES = ["Informatique", "Téléphonie", "Imprimante", "Tablette"];
+
+// Une fiche appartient à un service donné soit parce que son champ
+// "service" le vaut directement, soit parce qu'elle est "Appeler le
+// client" avec ce département comme service concerné — dans ce cas
+// elle doit aussi apparaître dans l'onglet Informatique/Téléphonie
+// correspondant sur la page principale.
+function matchesService(ticket, service) {
+  if (ticket.service === service) return true;
+  if (ticket.service === "Appeler le client" && ticket.appelDepartement === service) return true;
+  return false;
+}
 
 // ── Fonctionnalité SMS (minimaliste, Android + Google Messages uniquement) ──
 // Atelier SAV ne fait que préparer le message et ouvrir l'application SMS
@@ -101,27 +113,53 @@ const SMS_TEMPLATES = [
     body: "Suite au diagnostic de votre équipement, la réparation n'est malheureusement pas possible. Nous ne pouvons donc pas intervenir. Merci de nous contacter au {companyPhone} si nécessaire.",
     contactLine: false,
   },
+  {
+    key: "messAbs",
+    label: "Mess.Abs.",
+    body: "Suite à votre demande auprès de notre service, nous avons essayé de vous contacter par téléphone le {date} à {heure}, mais nous n'avons pas pu vous joindre. Merci de nous contacter au {companyPhone} si nécessaire.",
+    contactLine: false,
+    // Uniquement proposé quand la fiche est en "Appeler le client" (voir
+    // getSmsTemplatesForStatus) — utilise la date/heure d'appel prévue.
+    appelOnly: true,
+  },
   { key: "custom", label: "Message personnalisé" },
 ];
 
 // Selon le statut de la fiche, seuls certains messages prédéfinis sont
 // proposés dans le menu SMS (voir demande spécifique) :
-// - "Appel/SMS" : les 6 messages (comportement d'origine)
+// - "Appel/SMS" : les 6 messages de base (comportement d'origine)
 // - "Attente retour client" : uniquement Besoin d'infos/accord (3), Devis/accord (4), Message personnalisé (6)
 // - "Attente pièces" : uniquement En attente de pièces (2), Message personnalisé (6)
+// Le message "Mess.Abs." (appelOnly) s'ajoute en plus, uniquement quand
+// le Service de la fiche est "Appeler le client", quel que soit le statut.
 const SMS_TEMPLATE_KEYS_BY_STATUS = {
   "Appel/SMS": ["pret", "pieces", "accord", "devis", "rappel", "irreparable", "custom"],
   "Attente retour client": ["accord", "devis", "custom"],
   "Attente pièces": ["pieces", "custom"],
+  // "En cours" : bouton SMS visible, mais seule la base "Message
+  // personnalisé" est proposée — Mess.Abs. s'ajoute automatiquement
+  // (voir getSmsTemplatesForStatus) si le Service est "Appeler le
+  // client", et le bouton "Appel Client" suit la même condition côté
+  // rendu du modal, indépendamment du statut.
+  "En cours": ["custom"],
 };
 
-function getSmsTemplatesForStatus(statut) {
+function getSmsTemplatesForStatus(statut, service) {
   const keys = SMS_TEMPLATE_KEYS_BY_STATUS[statut];
-  if (!keys) return SMS_TEMPLATES;
-  return SMS_TEMPLATES.filter((t) => keys.includes(t.key));
+  let list = keys ? SMS_TEMPLATES.filter((t) => keys.includes(t.key)) : SMS_TEMPLATES.slice();
+  if (service === "Appeler le client") {
+    const messAbs = SMS_TEMPLATES.find((t) => t.key === "messAbs");
+    if (messAbs && !list.includes(messAbs)) {
+      const customIdx = list.findIndex((t) => t.key === "custom");
+      list = customIdx !== -1
+        ? [...list.slice(0, customIdx), messAbs, ...list.slice(customIdx)]
+        : [...list, messAbs];
+    }
+  }
+  return list;
 }
 
-function buildSmsMessage(templateKey, customText, config) {
+function buildSmsMessage(templateKey, customText, config, ticket) {
   const companyName = (config.companyName || "").trim();
   const companyPhone = (config.companyPhone || "").trim();
   if (templateKey === "custom") {
@@ -130,7 +168,20 @@ function buildSmsMessage(templateKey, customText, config) {
   }
   const tpl = SMS_TEMPLATES.find((t) => t.key === templateKey);
   if (!tpl) return "";
-  const body = tpl.body.replace("{companyPhone}", companyPhone);
+  let body = tpl.body.replace("{companyPhone}", companyPhone);
+  if (tpl.appelOnly) {
+    let dateStr = "";
+    let heureStr = "";
+    if (ticket && ticket.appelDate) {
+      const [y, m, d] = ticket.appelDate.split("-");
+      if (y && m && d) dateStr = `${d}/${m}/${y}`;
+    }
+    if (ticket && ticket.appelHeure) {
+      const [h, min] = ticket.appelHeure.split(":");
+      if (h && min) heureStr = `${h}h${min}`;
+    }
+    body = body.replace("{date}", dateStr).replace("{heure}", heureStr);
+  }
   const contactLine = tpl.contactLine
     ? `Pour plus d'informations, veuillez nous contacter au magasin au ${companyPhone}. `
     : "";
@@ -141,6 +192,11 @@ function openSms(phone, message) {
   const cleanPhone = String(phone || "").replace(/\s+/g, "");
   const url = `sms:${cleanPhone}?body=${encodeURIComponent(message)}`;
   window.location.href = url;
+}
+
+function callPhone(phone) {
+  const cleanPhone = String(phone || "").replace(/\s+/g, "");
+  window.location.href = `tel:${cleanPhone}`;
 }
 
 // Couleur de mise en avant des onglets de filtre (dont "Toutes" et
@@ -295,6 +351,9 @@ function blankTicket() {
     telephone: "",
     email: "",
     service: "",
+    appelDepartement: "",
+    appelDate: "",
+    appelHeure: "",
     motDePasse: "",
     codeDeverrouillage: "",
     schema: [],
@@ -332,6 +391,30 @@ function formatDate(ts) {
   if (!ts) return "";
   const d = new Date(ts);
   return d.toLocaleDateString("fr-FR", { day: "2-digit", month: "2-digit", year: "numeric" });
+}
+
+// Formate la date (venant d'un <input type="date">, format ISO AAAA-MM-JJ)
+// et l'heure (<input type="time">, format HH:MM) de l'appel prévu, ex.
+// "12/12/26 à 10h20".
+function formatAppelDateHeure(dateStr, heureStr) {
+  if (!dateStr) return "";
+  const [y, m, d] = dateStr.split("-");
+  if (!y || !m || !d) return "";
+  let out = `${d}/${m}/${y.slice(-2)}`;
+  if (heureStr) {
+    const [h, min] = heureStr.split(":");
+    if (h && min) out += ` à ${h}h${min}`;
+  }
+  return out;
+}
+
+// Vrai si la date/heure d'appel prévue est dépassée de plus de 30
+// minutes par rapport à maintenant.
+function isAppelOverdue(dateStr, heureStr) {
+  if (!dateStr || !heureStr) return false;
+  const dt = new Date(`${dateStr}T${heureStr}:00`);
+  if (isNaN(dt.getTime())) return false;
+  return Date.now() - dt.getTime() > 30 * 60 * 1000;
 }
 
 function buildNumero(n) {
@@ -867,7 +950,7 @@ export default function App() {
     if (statutFilter === "Archivées") {
       list = tickets.filter((t) => t.archived);
     } else if (SERVICES.includes(statutFilter)) {
-      list = tickets.filter((t) => !t.archived && t.service === statutFilter);
+      list = tickets.filter((t) => !t.archived && matchesService(t, statutFilter));
     } else {
       list = tickets.filter((t) => !t.archived);
       if (statutFilter !== "Toutes") list = list.filter((t) => t.statut === statutFilter);
@@ -921,7 +1004,7 @@ export default function App() {
     const active = tickets.filter((t) => !t.archived);
     const c = { Toutes: active.length };
     STATUTS.forEach((s) => (c[s] = active.filter((t) => t.statut === s).length));
-    SERVICES.forEach((s) => (c[s] = active.filter((t) => t.service === s).length));
+    SERVICES.forEach((s) => (c[s] = active.filter((t) => matchesService(t, s)).length));
     c["Archivées"] = tickets.filter((t) => t.archived).length;
     return c;
   }, [tickets]);
@@ -1168,8 +1251,13 @@ export default function App() {
       setSmsStep("custom");
       return;
     }
-    const message = buildSmsMessage(key, "", companyConfig);
+    const message = buildSmsMessage(key, "", companyConfig, current);
     openSms(current.telephone, message);
+    setSmsModalOpen(false);
+  };
+
+  const callClientNow = () => {
+    callPhone(current.telephone);
     setSmsModalOpen(false);
   };
 
@@ -1227,8 +1315,23 @@ export default function App() {
         </button>
       )}
       <div className="num sav-mono">{t.numero}</div>
-      {t.service && (
-        <div className="service" style={{ color: SERVICE_COLOR[t.service] || "var(--text-muted)" }}>{t.service}</div>
+      {t.service === "Appeler le client" ? (
+        <div className="service">
+          {t.appelDepartement && (
+            <span style={{ color: SERVICE_COLOR[t.appelDepartement] || "var(--text-muted)" }}>{t.appelDepartement} </span>
+          )}
+          <span style={{ color: SERVICE_COLOR["Appeler le client"] }}>Appeler le client</span>
+          {(t.appelDate || t.appelHeure) && (
+            <span style={{ color: isAppelOverdue(t.appelDate, t.appelHeure) ? "var(--red)" : "var(--text-muted)" }}>
+              {" "}
+              {formatAppelDateHeure(t.appelDate, t.appelHeure)}
+            </span>
+          )}
+        </div>
+      ) : (
+        t.service && (
+          <div className="service" style={{ color: SERVICE_COLOR[t.service] || "var(--text-muted)" }}>{t.service}</div>
+        )
       )}
       <div className="nom">{t.nom || "Sans nom"}</div>
       <div className="modele"><Smartphone size={13} /> {t.marqueModele || "Modèle non précisé"}</div>
@@ -1331,6 +1434,8 @@ export default function App() {
         .sav-switch-item .lbl { font-size:11px; line-height:1.2; }
         .sav-switch-badge { font-size:9.5px; font-weight:700; padding:2px 6px; border-radius:5px; min-width:38px; text-align:center; white-space:nowrap; flex-shrink:0; }
         .sav-tasks-detail-input { margin-top:8px; width:100%; background:var(--graphite-800); border:1px solid var(--line); border-radius:7px; padding:8px 10px; color:var(--text); font-size:13px; font-family:inherit; }
+        .sav-appel-datetime { margin-top:10px; }
+        .sav-appel-datetime input[type=date], .sav-appel-datetime input[type=time] { background:var(--graphite-800); border:1px solid var(--line); border-radius:7px; padding:8px 10px; color:var(--text); font-size:13px; font-family:inherit; color-scheme:dark; }
         .sav-tasks-columns-wrap { display:flex; gap:10px; align-items:flex-start; }
         .sav-tasks-columns-wrap .sav-switch-grid { flex:1; }
         .sav-switch-column { display:flex; flex-direction:column; gap:6px; flex:0 0 150px; }
@@ -1347,6 +1452,8 @@ export default function App() {
         .sav-sms-list { display:flex; flex-direction:column; gap:8px; margin-bottom:4px; }
         .sav-sms-item { text-align:left; padding:10px 12px; border-radius:7px; border:1px solid var(--line); background:var(--graphite-800); color:var(--text); font-size:13px; cursor:pointer; }
         .sav-sms-item:hover { border-color:var(--amber); color:var(--amber); }
+        .sav-sms-call-item { width:100%; margin-bottom:10px; border-color:var(--teal); color:var(--teal); font-weight:600; }
+        .sav-sms-call-item:hover { background:rgba(79,176,138,0.12); border-color:var(--teal); color:var(--teal); }
         .sav-sms-edit-company { background:none; border:none; color:var(--text-muted); font-size:11px; text-decoration:underline; cursor:pointer; padding:6px 0 0; }
         .sav-sms-textarea { width:100%; min-height:100px; background:var(--graphite-800); border:1px solid var(--line); border-radius:7px; padding:8px 10px; color:var(--text); font-size:13px; font-family:inherit; resize:vertical; margin-top:4px; }
         .sav-sms-hint { font-size:11px; color:var(--text-muted); margin:6px 0 14px; }
@@ -1576,7 +1683,23 @@ export default function App() {
                     <option value="Téléphonie" style={{ color: SERVICE_COLOR["Téléphonie"] }}>Téléphonie</option>
                     <option value="Imprimante" style={{ color: SERVICE_COLOR["Imprimante"] }}>Imprimante</option>
                     <option value="Tablette" style={{ color: SERVICE_COLOR["Tablette"] }}>Tablette</option>
+                    <option value="Appeler le client" style={{ color: SERVICE_COLOR["Appeler le client"] }}>Appeler le client</option>
                   </select>
+                  {current.service === "Appeler le client" && (
+                    <select
+                      value={current.appelDepartement}
+                      onChange={(e) => update({ appelDepartement: e.target.value })}
+                      style={{
+                        marginTop: 6,
+                        color: SERVICE_COLOR[current.appelDepartement] || undefined,
+                        fontWeight: current.appelDepartement ? 600 : 400,
+                      }}
+                    >
+                      <option value="">Concerne : -</option>
+                      <option value="Informatique" style={{ color: SERVICE_COLOR["Informatique"] }}>Informatique</option>
+                      <option value="Téléphonie" style={{ color: SERVICE_COLOR["Téléphonie"] }}>Téléphonie</option>
+                    </select>
+                  )}
                 </div>
                 <div className="sav-field">
                   <label>Email</label>
@@ -1665,6 +1788,27 @@ export default function App() {
                       onChange={(e) => update({ imprimanteDetail: e.target.value })}
                       placeholder="Préciser l'intervention imprimante"
                     />
+                  )}
+                  {current.service === "Appeler le client" && (
+                    <div className="sav-appel-datetime">
+                      <label style={{ display: "block", fontSize: 11.5, color: "var(--text-muted)", marginBottom: 6 }}>
+                        Appeler le client — date et heure prévues
+                      </label>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input
+                          type="date"
+                          value={current.appelDate}
+                          onChange={(e) => update({ appelDate: e.target.value })}
+                          style={{ flex: 1 }}
+                        />
+                        <input
+                          type="time"
+                          value={current.appelHeure}
+                          onChange={(e) => update({ appelHeure: e.target.value })}
+                          style={{ flex: 1 }}
+                        />
+                      </div>
+                    </div>
                   )}
                 </div>
               </div>
@@ -1915,8 +2059,13 @@ export default function App() {
             {smsStep === "templates" && (
               <>
                 <h3 className="sav-sms-title">Choisir un message</h3>
+                {current.service === "Appeler le client" && (
+                  <button className="sav-sms-item sav-sms-call-item" onClick={callClientNow}>
+                    📞 Appel Client
+                  </button>
+                )}
                 <div className="sav-sms-list">
-                  {getSmsTemplatesForStatus(current.statut).map((t) => (
+                  {getSmsTemplatesForStatus(current.statut, current.service).map((t) => (
                     <button key={t.key} className="sav-sms-item" onClick={() => sendSmsTemplate(t.key)}>
                       {t.label}
                     </button>

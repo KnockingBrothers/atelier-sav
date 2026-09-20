@@ -10,7 +10,7 @@ Application de gestion des fiches de prise en charge SAV (client, appareil, chec
 
 **Licence :** [AGPL v3](LICENSE) — voir la section [Licence](#licence) plus bas.
 
-**Version :** V14092026
+**Version :** V262009
 
 ## Prérequis
 
@@ -81,7 +81,7 @@ Un bouton **SMS** permet de prévenir un client par message, sans quitter l'appl
 
 Le bouton n'est visible **que si toutes ces conditions sont réunies** :
 - Vous consultez l'application depuis un **téléphone ou une tablette Android** (il est invisible sur PC, Windows, Mac, iPhone...).
-- La fiche a l'un de ces statuts : **Appel/SMS**, **Attente retour client**, ou **Attente pièces**.
+- La fiche a l'un de ces statuts : **Appel/SMS**, **Attente retour client**, **Attente pièces**, ou **En cours**.
 - Le téléphone du client est renseigné sur la fiche.
 
 ### Ce qu'il propose
@@ -93,8 +93,19 @@ Selon le statut de la fiche, un choix de messages prédéfinis s'affiche :
 | **Appel/SMS** | Les 7 messages : Appareil prêt, En attente de pièces, Besoin d'informations/accord, Devis/accord, Rappel de récupération, Réparation impossible, Message personnalisé |
 | **Attente retour client** | Besoin d'informations/accord, Devis/accord, Message personnalisé |
 | **Attente pièces** | En attente de pièces, Message personnalisé |
+| **En cours** | Uniquement Message personnalisé — sauf si le Service de la fiche est "Appeler le client" (voir plus bas), auquel cas Appel Client et Mess.Abs. s'ajoutent |
 
 Chaque message est construit sur une seule ligne, avec le nom et le téléphone du magasin insérés automatiquement (configurés une seule fois au premier envoi, modifiables ensuite depuis la fenêtre SMS).
+
+### Service "Appeler le client"
+
+Dans le champ **Service** de la fiche, l'option **Appeler le client** (en blanc) fait apparaître un sous-menu pour préciser le département concerné (**Informatique** ou **Téléphonie**, avec leurs couleurs habituelles), ainsi qu'un sélecteur de **date et heure** dans la section "Interventions à prévoir".
+
+Sur la page principale, la fiche affiche alors par exemple `Informatique Appeler le client 12/12/26 à 10h20`, et cette date/heure passe automatiquement en **rouge** si elle est dépassée de plus de 30 minutes. La fiche apparaît aussi dans l'onglet du département concerné (Informatique ou Téléphonie), en plus de son statut habituel.
+
+Quand ce service est actif, la fenêtre SMS propose en plus :
+- **📞 Appel Client** : ouvre directement le composeur téléphonique (`tel:`) avec le numéro déjà renseigné sur la fiche — un vrai appel, pas un message.
+- **Mess.Abs.** : message prédéfini pour prévenir que l'appel prévu n'a pas abouti, avec la date et l'heure de la tentative insérées automatiquement dans le texte.
 
 ### Comment ça fonctionne
 
