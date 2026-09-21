@@ -110,7 +110,7 @@ const SMS_TEMPLATES = [
   {
     key: "irreparable",
     label: "Réparation impossible",
-    body: "Suite au diagnostic de votre équipement, la réparation n'est malheureusement pas possible. Nous ne pouvons donc pas intervenir. Merci de nous contacter au {companyPhone} si nécessaire.",
+    body: "Suite au diagnostic de votre équipement, celui-ci ne peut malheureusement pas être réparé. Nous ne pouvons donc pas donner suite à l'intervention. Merci de nous contacter au {companyPhone} si nécessaire.",
     contactLine: false,
   },
   {
