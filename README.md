@@ -188,6 +188,17 @@ Le script arrête l'application, garde une copie de sécurité de la base actuel
 
 Une sauvegarde stockée sur le même disque que le serveur ne protège **pas** contre une panne de disque, un vol, ou une casse du Raspberry Pi/serveur. Pour une vraie protection, copiez aussi régulièrement le dossier `~/atelier-sav-backups/` ailleurs (un autre ordinateur, une clé USB, un NAS, un espace cloud...). La ligne `rsync` en commentaire à la fin de `backup.sh` peut automatiser cet envoi si vous avez une autre machine accessible en SSH.
 
+### Sauvegarder vers un partage réseau SMB/CIFS (NAS, PC Windows partagé...)
+
+`backup.sh` et `restore.sh` contiennent chacun, en commentaire à la fin du fichier, une procédure documentaire complète pour utiliser un partage réseau SMB/CIFS comme destination des sauvegardes — utile si vous avez un NAS ou un PC Windows avec un dossier partagé sur le réseau de l'atelier. Cette procédure n'est **jamais exécutée automatiquement** (elle reste en commentaire) ; elle sert de guide si vous souhaitez la mettre en place vous-même. Elle couvre :
+
+- l'installation du support SMB/CIFS (`cifs-utils`) ;
+- la création d'un point de montage et d'un fichier d'identifiants sécurisé ;
+- le montage automatique du partage au démarrage via `/etc/fstab` ;
+- l'adaptation de `backup.sh` (ligne `rsync`) et de `restore.sh` (variable `BACKUP_DIR`) pour utiliser ce partage monté.
+
+Ouvrez les fichiers `backup.sh` et `restore.sh` pour lire le détail des étapes, à adapter avec l'adresse IP et le nom réel de votre partage.
+
 ## Mettre à jour l'application après une modification
 
 Un script `deploy.sh` est fourni pour automatiser les mises à jour depuis votre PC :

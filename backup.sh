@@ -45,3 +45,78 @@ ls -lh "$BACKUP_DIR"/atelier-sav-*.db.gz 2>/dev/null | tail -n 10
 # envoyer aussi la sauvegarde ailleurs (autre PC, NAS, etc.) :
 #
 # rsync -az "$BACKUP_DIR/" utilisateur@autre-machine:/chemin/vers/sauvegardes/atelier-sav/
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROCÉDURE OPTIONNELLE : SAUVEGARDE SUR UN PARTAGE RÉSEAU SMB/CIFS
+#
+# Cette procédure permet d'utiliser un partage réseau hébergé sur :
+#   - un NAS ;
+#   - un ordinateur Windows ;
+#   - tout autre équipement compatible SMB/CIFS.
+#
+# Exemple de partage :
+#
+#   //adresse_ip/nom_du_partage
+#
+# L'adresse IP est volontairement générique et doit être déterminée lors
+# de l'installation.
+#
+# 1. Installer le support SMB/CIFS :
+#
+#      sudo apt update
+#      sudo apt install -y cifs-utils rsync
+#
+# 2. Créer le point de montage :
+#
+#      sudo mkdir -p /mnt/atelier-sav-backup
+#
+# 3. Créer un fichier d'identifiants sécurisé :
+#
+#      sudo nano /root/.smb-atelier-sav
+#
+#   Contenu :
+#
+#      username=UTILISATEUR
+#      password=MOT_DE_PASSE
+#
+#   Pour un environnement utilisant un domaine/workgroup, ajouter si nécessaire :
+#
+#      domain=WORKGROUP
+#
+#   Protéger le fichier :
+#
+#      sudo chmod 600 /root/.smb-atelier-sav
+#
+# 4. Ajouter le partage dans /etc/fstab :
+#
+#      //adresse_ip/nom_du_partage /mnt/atelier-sav-backup cifs credentials=/root/.smb-atelier-sav,iocharset=utf8,vers=3.0,_netdev,nofail,x-systemd.automount 0 0
+#
+# 5. Tester le montage :
+#
+#      sudo mount -a
+#      ls -la /mnt/atelier-sav-backup
+#
+# 6. La sauvegarde peut ensuite être copiée vers le partage monté :
+#
+#      rsync -az "$BACKUP_DIR/" /mnt/atelier-sav-backup/
+#
+# Pour une rotation de 30 sauvegardes quotidiennes avec rsync --link-dest,
+# organiser les sauvegardes par date, par exemple :
+#
+#      /mnt/atelier-sav-backup/
+#      ├── 2026-09-16/
+#      ├── 2026-09-15/
+#      ├── 2026-09-14/
+#      └── ...
+#
+# La méthode --link-dest permet de conserver des sauvegardes restaurables
+# tout en partageant physiquement les fichiers inchangés.
+#
+# IMPORTANT :
+# - Cette procédure est uniquement documentaire et commentée.
+# - L'adresse "adresse_ip" doit être remplacée lors de l'installation.
+# - "nom_du_partage" doit correspondre au nom réel du partage SMB/CIFS.
+# - Le partage doit être monté avant toute copie.
+# - Pour une base SQLite active, utiliser sqlite3 .backup avant le transfert
+#   afin de disposer d'une copie cohérente de la base.
+# ─────────────────────────────────────────────────────────────────────────────

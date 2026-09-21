@@ -55,3 +55,66 @@ echo ""
 echo "✓ Restauration terminée."
 echo "  Si ce n'était pas la bonne sauvegarde, votre base d'avant est ici :"
 echo "  $SAFETY_COPY"
+
+# ─────────────────────────────────────────────────────────────────────────────
+# PROCÉDURE OPTIONNELLE : RESTAURATION DEPUIS UN PARTAGE RÉSEAU SMB/CIFS
+#
+# Le partage peut être hébergé sur un NAS, un ordinateur Windows ou tout
+# équipement compatible SMB/CIFS.
+#
+# Exemple :
+#
+#   //adresse_ip/nom_du_partage
+#
+# L'adresse IP et le nom du partage sont à déterminer lors de l'installation.
+#
+# 1. Installer le support SMB/CIFS :
+#
+#      sudo apt update
+#      sudo apt install -y cifs-utils
+#
+# 2. Créer le point de montage :
+#
+#      sudo mkdir -p /mnt/atelier-sav-backup
+#
+# 3. Créer le fichier d'identifiants sécurisé :
+#
+#      sudo nano /root/.smb-atelier-sav
+#
+#      username=UTILISATEUR
+#      password=MOT_DE_PASSE
+#
+#   Ajouter éventuellement :
+#
+#      domain=WORKGROUP
+#
+#   Puis :
+#
+#      sudo chmod 600 /root/.smb-atelier-sav
+#
+# 4. Ajouter dans /etc/fstab :
+#
+#      //adresse_ip/nom_du_partage /mnt/atelier-sav-backup cifs credentials=/root/.smb-atelier-sav,iocharset=utf8,vers=3.0,_netdev,nofail,x-systemd.automount 0 0
+#
+# 5. Monter le partage :
+#
+#      sudo mount -a
+#
+# 6. Pour utiliser les sauvegardes présentes sur le partage, adapter :
+#
+#      BACKUP_DIR="/mnt/atelier-sav-backup"
+#
+# Avec une organisation par dates et une rotation de 30 jours :
+#
+#      /mnt/atelier-sav-backup/
+#      ├── 2026-09-16/
+#      ├── 2026-09-15/
+#      ├── 2026-09-14/
+#      └── ...
+#
+# IMPORTANT :
+# - Cette procédure est uniquement documentaire et commentée.
+# - L'adresse "adresse_ip" doit être remplacée lors de l'installation.
+# - "nom_du_partage" doit correspondre au nom réel du partage SMB/CIFS.
+# - Le partage doit être monté avant toute restauration.
+# ─────────────────────────────────────────────────────────────────────────────
