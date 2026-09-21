@@ -2054,7 +2054,7 @@ export default function App() {
             {smsStep === "templates" && (
               <>
                 <h3 className="sav-sms-title">Choisir un message</h3>
-                {current.service === "Appeler le client" && (
+                {(current.service === "Appeler le client" || current.statut === "En cours") && (
                   <button className="sav-sms-item sav-sms-call-item" onClick={callClientNow}>
                     📞 Appel Client
                   </button>
