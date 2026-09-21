@@ -80,44 +80,42 @@ const SMS_TEMPLATES = [
   {
     key: "pret",
     label: "Appareil prêt",
-    body: "Votre appareil est prêt à être récupéré.",
-    contactLine: true,
+    text: "Bonjour, votre appareil est prêt à être récupéré chez {companyName}.\nPour plus d'informations, contactez-nous au {companyPhone}.",
   },
   {
     key: "pieces",
     label: "En attente de pièces",
-    body: "Votre appareil est actuellement en attente de pièces nécessaires à son intervention. Nous vous tiendrons informé dès que nous pourrons poursuivre les travaux.",
-    contactLine: true,
+    text: "Bonjour, votre appareil est en attente de pièces pour sa réparation.\nNous vous informerons dès que l'intervention pourra reprendre.\nPour toute question : {companyPhone} {companyName}.",
   },
   {
     key: "accord",
     label: "Besoin d'informations / accord client",
-    body: "Nous avons besoin de vous contacter concernant votre appareil. Merci de nous contacter au magasin au {companyPhone}.",
-    contactLine: false,
+    text: "Bonjour, nous avons besoin de vous contacter au sujet de votre appareil.\nMerci de nous appeler au {companyPhone} {companyName}.",
   },
   {
     key: "devis",
     label: "Devis / accord nécessaire",
-    body: "Nous avons besoin de votre accord concernant l'intervention sur votre appareil. Merci de nous contacter au magasin au {companyPhone}.",
-    contactLine: false,
+    text: "Bonjour, un devis / accord est nécessaire avant d'intervenir sur votre appareil.\nMerci de nous contacter au {companyPhone} {companyName}.",
   },
   {
     key: "rappel",
     label: "Rappel de récupération",
-    body: "Votre appareil est disponible au magasin et reste en attente de récupération. Merci de nous contacter au {companyPhone} si nécessaire.",
-    contactLine: false,
+    text: "Bonjour, votre appareil est disponible en magasin et en attente de récupération.\nPour toute information : {companyPhone} {companyName}.",
   },
   {
     key: "irreparable",
     label: "Réparation impossible",
-    body: "Suite au diagnostic de votre équipement, celui-ci ne peut malheureusement pas être réparé. Nous ne pouvons donc pas donner suite à l'intervention. Merci de nous contacter au {companyPhone} si nécessaire.",
-    contactLine: false,
+    text: "Bonjour, après diagnostic, votre équipement ne peut malheureusement pas être réparé.\nContactez-nous au {companyPhone} {companyName}.",
+  },
+  {
+    key: "refus",
+    label: "Refus de réparation",
+    text: "Suite à votre refus de réparation, votre appareil reste disponible en magasin ;\npour toute information, contactez-nous au : {companyPhone} {companyName}.",
   },
   {
     key: "messAbs",
     label: "Mess.Abs.",
-    body: "Suite à votre demande auprès de notre service, nous avons essayé de vous contacter par téléphone le {date} à {heure}, mais nous n'avons pas pu vous joindre. Merci de nous contacter au {companyPhone} si nécessaire.",
-    contactLine: false,
+    text: "Bonjour, nous avons tenté de vous joindre par téléphone le {date} à {heure}, sans succès.\nMerci de nous rappeler au {companyPhone} {companyName}.",
     // Uniquement proposé quand la fiche est en "Appeler le client" (voir
     // getSmsTemplatesForStatus) — utilise la date/heure d'appel prévue.
     appelOnly: true,
@@ -133,7 +131,7 @@ const SMS_TEMPLATES = [
 // Le message "Mess.Abs." (appelOnly) s'ajoute en plus, uniquement quand
 // le Service de la fiche est "Appeler le client", quel que soit le statut.
 const SMS_TEMPLATE_KEYS_BY_STATUS = {
-  "Appel/SMS": ["pret", "pieces", "accord", "devis", "rappel", "irreparable", "custom"],
+  "Appel/SMS": ["pret", "pieces", "accord", "devis", "rappel", "irreparable", "refus", "custom"],
   "Attente retour client": ["accord", "devis", "custom"],
   "Attente pièces": ["pieces", "custom"],
   // "En cours" : bouton SMS visible, mais seule la base "Message
@@ -168,7 +166,7 @@ function buildSmsMessage(templateKey, customText, config, ticket) {
   }
   const tpl = SMS_TEMPLATES.find((t) => t.key === templateKey);
   if (!tpl) return "";
-  let body = tpl.body.replace("{companyPhone}", companyPhone);
+  let text = tpl.text.replace(/\{companyPhone\}/g, companyPhone).replace(/\{companyName\}/g, companyName);
   if (tpl.appelOnly) {
     let dateStr = "";
     let heureStr = "";
@@ -180,12 +178,9 @@ function buildSmsMessage(templateKey, customText, config, ticket) {
       const [h, min] = ticket.appelHeure.split(":");
       if (h && min) heureStr = `${h}h${min}`;
     }
-    body = body.replace("{date}", dateStr).replace("{heure}", heureStr);
+    text = text.replace("{date}", dateStr).replace("{heure}", heureStr);
   }
-  const contactLine = tpl.contactLine
-    ? `Pour plus d'informations, veuillez nous contacter au magasin au ${companyPhone}. `
-    : "";
-  return `Bonjour, ${body} ${companyName} vous remercie pour votre confiance. ${contactLine}Nous vous remercions.`;
+  return text;
 }
 
 function openSms(phone, message) {
