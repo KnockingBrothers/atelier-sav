@@ -76,6 +76,11 @@ function isAndroidDevice() {
   return typeof navigator !== "undefined" && /android/i.test(navigator.userAgent || "");
 }
 
+// Paliers proposés pour le délai de "Retour à l'accueil" automatique
+// (enregistrement + retour à la liste après inactivité sur une fiche) :
+// 0 = désactivé, puis 22, 42, 62, 82... par tranches de 20 secondes.
+const RETURN_HOME_OPTIONS = [0, 22, 42, 62, 82, 102, 122, 142, 162, 182, 202];
+
 const SMS_TEMPLATES = [
   {
     key: "pret",
@@ -803,13 +808,14 @@ export default function App() {
   const [saving, setSaving] = useState(false);
   const [nomTouched, setNomTouched] = useState(false);
   const [telephoneTouched, setTelephoneTouched] = useState(false);
+  const [serviceTouched, setServiceTouched] = useState(false);
   const [lastAutoSave, setLastAutoSave] = useState(null);
   const [autoSaving, setAutoSaving] = useState(false);
   const [printMode, setPrintMode] = useState("ticket");
   const [labelPreset, setLabelPreset] = useState("pos80");
   const [labelSize, setLabelSize] = useState({ w: 80, h: 60 });
-  const [companyConfig, setCompanyConfig] = useState({ companyName: "", companyPhone: "" });
-  const [companyFormDraft, setCompanyFormDraft] = useState({ companyName: "", companyPhone: "" });
+  const [companyConfig, setCompanyConfig] = useState({ companyName: "", companyPhone: "", returnHomeSeconds: 0 });
+  const [companyFormDraft, setCompanyFormDraft] = useState({ companyName: "", companyPhone: "", returnHomeSeconds: 0 });
   const [smsModalOpen, setSmsModalOpen] = useState(false);
   const [smsStep, setSmsStep] = useState("templates");
   const [smsCustomText, setSmsCustomText] = useState("");
@@ -915,7 +921,11 @@ export default function App() {
         const savedConfig = await window.storage.get("sav:config");
         if (savedConfig && savedConfig.value) {
           const parsed = JSON.parse(savedConfig.value);
-          setCompanyConfig({ companyName: parsed.companyName || "", companyPhone: parsed.companyPhone || "" });
+          setCompanyConfig({
+            companyName: parsed.companyName || "",
+            companyPhone: parsed.companyPhone || "",
+            returnHomeSeconds: Number(parsed.returnHomeSeconds) || 0,
+          });
         }
       } catch {}
       setLoading(false);
@@ -1060,6 +1070,7 @@ export default function App() {
     setCurrent(t);
     setNomTouched(false);
     setTelephoneTouched(false);
+    setServiceTouched(false);
     setLastAutoSave(null);
     setView("edit");
   }, []);
@@ -1068,6 +1079,7 @@ export default function App() {
     setCurrent(JSON.parse(JSON.stringify(ticket)));
     setNomTouched(false);
     setTelephoneTouched(false);
+    setServiceTouched(false);
     setLastAutoSave(null);
     setView("edit");
   };
@@ -1077,6 +1089,7 @@ export default function App() {
     setCurrent(null);
     setNomTouched(false);
     setTelephoneTouched(false);
+    setServiceTouched(false);
     setLastAutoSave(null);
   };
 
@@ -1146,6 +1159,11 @@ export default function App() {
       setError("Le téléphone du client est requis.");
       return;
     }
+    if (!current.service) {
+      setServiceTouched(true);
+      setError("Le service est requis.");
+      return;
+    }
     setError("");
     setSaving(true);
     try {
@@ -1173,7 +1191,8 @@ export default function App() {
       if (!c) return;
       const nomOk = c.nom && c.nom.trim();
       const telOk = c.telephone && c.telephone.trim();
-      if (!nomOk || !telOk) return; // champs obligatoires manquants : on ne fait rien
+      const serviceOk = !!c.service;
+      if (!nomOk || !telOk || !serviceOk) return; // champs obligatoires manquants : on ne fait rien
       setAutoSaving(true);
       try {
         const saved = await persistTicket(c);
@@ -1194,6 +1213,23 @@ export default function App() {
     }, 20000);
     return () => clearInterval(interval);
   }, [view, persistTicket]);
+
+  // Enregistrement automatique ("Retour à l'accueil") après un délai
+  // d'inactivité configurable (0 = désactivé, réglable depuis la fenêtre
+  // SMS avec le nom/téléphone du magasin) — équivalent à un clic sur
+  // "Enregistrer" : valide les champs obligatoires, sauvegarde, puis
+  // retourne à la liste. Le minuteur repart de zéro à chaque modification
+  // de `current`, donc il ne se déclenche que si la fiche reste vraiment
+  // inactive (pas juste au bout du délai depuis l'ouverture).
+  useEffect(() => {
+    if (view !== "edit" || !current) return;
+    const delaySeconds = Number(companyConfig.returnHomeSeconds) || 0;
+    if (delaySeconds <= 0) return;
+    const timeout = setTimeout(() => {
+      saveTicket();
+    }, delaySeconds * 1000);
+    return () => clearTimeout(timeout);
+  }, [current, view, companyConfig.returnHomeSeconds]);
 
   const deleteTicket = async (id) => {
     try {
@@ -1253,6 +1289,7 @@ export default function App() {
   };
   const nomInvalid = nomTouched && current && !current.nom.trim();
   const telephoneInvalid = telephoneTouched && current && !current.telephone.trim();
+  const serviceInvalid = serviceTouched && current && !current.service;
   const cycleCheck = (key) => {
     setCurrent((c) => {
       const cur = c.checkup[key];
@@ -1316,6 +1353,7 @@ export default function App() {
     const cfg = {
       companyName: companyFormDraft.companyName.trim(),
       companyPhone: companyFormDraft.companyPhone.trim(),
+      returnHomeSeconds: Number(companyFormDraft.returnHomeSeconds) || 0,
     };
     if (!cfg.companyName || !cfg.companyPhone) return;
     try {
@@ -1766,11 +1804,16 @@ export default function App() {
                   )}
                 </div>
                 <div className="sav-field">
-                  <label>Service</label>
+                  <label>Service <span style={{ color: "var(--red)" }}>*</span></label>
                   <select
                     value={current.service}
                     onChange={(e) => update({ service: e.target.value })}
-                    style={{ color: SERVICE_COLOR[current.service] || undefined, fontWeight: current.service ? 600 : 400 }}
+                    onBlur={() => setServiceTouched(true)}
+                    style={{
+                      color: SERVICE_COLOR[current.service] || undefined,
+                      fontWeight: current.service ? 600 : 400,
+                      ...(serviceInvalid ? { borderColor: "var(--red)" } : {}),
+                    }}
                   >
                     <option value="">-</option>
                     <option value="Informatique" style={{ color: SERVICE_COLOR["Informatique"] }}>Informatique</option>
@@ -1779,6 +1822,11 @@ export default function App() {
                     <option value="Tablette" style={{ color: SERVICE_COLOR["Tablette"] }}>Tablette</option>
                     <option value="Appeler le client" style={{ color: SERVICE_COLOR["Appeler le client"] }}>Appeler le client</option>
                   </select>
+                  {serviceInvalid && (
+                    <span style={{ display: "block", marginTop: 4, fontSize: 11, color: "var(--red)" }}>
+                      Le service est obligatoire.
+                    </span>
+                  )}
                   {current.service === "Appeler le client" && (
                     <select
                       value={current.appelDepartement}
@@ -2151,7 +2199,7 @@ export default function App() {
             </div>
             <div className="sav-actions-right">
               <button className="sav-btn" onClick={backToList}>Annuler</button>
-              <button className="sav-btn primary" onClick={saveTicket} disabled={saving || !current.nom.trim() || !current.telephone.trim()}>
+              <button className="sav-btn primary" onClick={saveTicket} disabled={saving || !current.nom.trim() || !current.telephone.trim() || !current.service}>
                 <Save size={15} /> {saving ? "Enregistrement..." : "Enregistrer"}
               </button>
             </div>
@@ -2192,6 +2240,20 @@ export default function App() {
                     onChange={(e) => setCompanyFormDraft((d) => ({ ...d, companyPhone: e.target.value }))}
                     placeholder="Téléphone du magasin"
                   />
+                </div>
+                <div className="sav-field" style={{ marginTop: 10 }}>
+                  <label>Retour à l'accueil automatique</label>
+                  <select
+                    value={companyFormDraft.returnHomeSeconds ?? 0}
+                    onChange={(e) => setCompanyFormDraft((d) => ({ ...d, returnHomeSeconds: Number(e.target.value) }))}
+                  >
+                    {RETURN_HOME_OPTIONS.map((s) => (
+                      <option key={s} value={s}>{s === 0 ? "Désactivé" : `${s} secondes`}</option>
+                    ))}
+                  </select>
+                  <span style={{ display: "block", marginTop: 4, fontSize: 11, color: "var(--text-muted)" }}>
+                    Enregistre la fiche et revient à l'accueil si elle reste inactive ce délai.
+                  </span>
                 </div>
                 <div className="row" style={{ marginTop: 16 }}>
                   <button className="sav-btn" onClick={() => setSmsModalOpen(false)}>Annuler</button>
