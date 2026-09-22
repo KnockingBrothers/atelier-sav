@@ -80,12 +80,12 @@ const SMS_TEMPLATES = [
   {
     key: "pret",
     label: "Appareil prêt",
-    text: "Bonjour, votre appareil est prêt à être récupéré chez {companyName}.\nPour plus d'informations, contactez-nous au {companyPhone}.",
+    text: "{companyName}\nBonjour, votre appareil est prêt et disponible.\nVous pouvez venir le récupérer aux horaires d'ouverture habituels.\nPour plus d'informations, contactez-nous au {companyPhone}.",
   },
   {
     key: "pieces",
     label: "En attente de pièces",
-    text: "Bonjour, votre appareil est en attente de pièces pour sa réparation.\nNous vous informerons dès que l'intervention pourra reprendre.\nPour toute question : {companyPhone} {companyName}.",
+    text: "{companyName}\nBonjour, petit contretemps : il nous manque des pièces pour votre appareil.\nNous vous informerons dès que l'intervention pourra reprendre.\nPour toute question : {companyPhone}.",
   },
   {
     key: "accord",
@@ -95,7 +95,7 @@ const SMS_TEMPLATES = [
   {
     key: "devis",
     label: "Devis / accord nécessaire",
-    text: "Bonjour, un devis / accord est nécessaire avant d'intervenir sur votre appareil.\nMerci de nous contacter au {companyPhone} {companyName}.",
+    text: "Bonjour, la réparation de votre {PIECES_1} coûte :\nPièce : {TARIF_PIÈCE1} € TTC\nMain d'œuvre : {TARIF_MO1} € TTC\nTotal : {TOTAL1} € TTC\nVotre accord requis avant intervention.\n{companyPhone} – {companyName}",
   },
   {
     key: "rappel",
@@ -105,7 +105,7 @@ const SMS_TEMPLATES = [
   {
     key: "irreparable",
     label: "Réparation impossible",
-    text: "Bonjour, après diagnostic, votre équipement ne peut malheureusement pas être réparé.\nContactez-nous au {companyPhone} {companyName}.",
+    text: "{companyName}\nBonjour, après diagnostic, votre équipement ne peut malheureusement pas être réparé par nos services.\nContactez-nous au {companyPhone}.",
   },
   {
     key: "refus",
@@ -180,6 +180,16 @@ function buildSmsMessage(templateKey, customText, config, ticket) {
     }
     text = text.replace("{date}", dateStr).replace("{heure}", heureStr);
   }
+  // Insère les valeurs de la première ligne de "pièces détachées"
+  // (Tarification) — uniquement la ligne 1, les lignes 2 à 10 sont
+  // ignorées côté SMS. Si un champ n'est pas rempli, le repère reste
+  // affiché tel quel dans le message (pas de remplacement).
+  const p1 = ticket && ticket.pieces && ticket.pieces[0];
+  text = text
+    .replace(/\{PIECES_1\}/g, p1 && p1.piece && p1.piece.trim() ? p1.piece.trim() : "{PIECES_1}")
+    .replace(/\{TARIF_PIÈCE1\}/g, p1 && p1.tarifPiece && String(p1.tarifPiece).trim() ? String(p1.tarifPiece).trim() : "{TARIF_PIÈCE1}")
+    .replace(/\{TARIF_MO1\}/g, p1 && p1.tarifMo && String(p1.tarifMo).trim() ? String(p1.tarifMo).trim() : "{TARIF_MO1}")
+    .replace(/\{TOTAL1\}/g, p1 && p1.total && String(p1.total).trim() ? String(p1.total).trim() : "{TOTAL1}");
   return text;
 }
 
@@ -199,6 +209,7 @@ function callPhone(phone) {
 function tabColor(s) {
   if (s === "Toutes") return "var(--amber)";
   if (s === "Archivées") return "var(--text-muted)";
+  if (s === "Non réclamé") return "var(--red)";
   if (SERVICE_COLOR[s]) return SERVICE_COLOR[s];
   return STATUT_COLOR[s] || "var(--amber)";
 }
@@ -342,6 +353,9 @@ function blankTicket() {
     restituedAt: null,
     archived: false,
     archivedAt: null,
+    appelSmsAt: null,
+    nonReclame: false,
+    nonReclameAt: null,
     nom: "",
     telephone: "",
     email: "",
@@ -363,6 +377,7 @@ function blankTicket() {
     remarque: "",
     total: "",
     priseEnCharge: "",
+    pieces: [],
     checkup: {},
     taches: {},
     imprimanteDetail: "",
@@ -371,7 +386,8 @@ function blankTicket() {
 }
 
 const ARCHIVE_DELAY_MS = 24 * 60 * 60 * 1000; // 24h avant archivage automatique
-const DELETE_AFTER_MS = 367 * 24 * 60 * 60 * 1000; // 367 jours avant suppression définitive des archives
+const DELETE_AFTER_MS = 367 * 24 * 60 * 60 * 1000; // 367 jours avant suppression définitive des archives / des non réclamés
+const NON_RECLAME_DELAY_MS = 15 * 24 * 60 * 60 * 1000; // 15 jours en "Appel/SMS" avant passage en "Non réclamé"
 
 async function loadCounter() {
   try {
@@ -832,9 +848,35 @@ export default function App() {
         }
       }
 
+      // Passe automatiquement en "Non réclamé" les fiches au statut
+      // "Appel/SMS" depuis plus de 15 jours (non archivées, pas déjà
+      // marquées). Elles disparaissent alors des onglets normaux.
+      const toNonReclame = loaded.filter(
+        (t) =>
+          t.statut === "Appel/SMS" &&
+          !t.archived &&
+          !t.nonReclame &&
+          t.appelSmsAt &&
+          now - t.appelSmsAt >= NON_RECLAME_DELAY_MS
+      );
+      if (toNonReclame.length > 0) {
+        for (const t of toNonReclame) {
+          t.nonReclame = true;
+          t.nonReclameAt = now;
+          try {
+            await window.storage.set(`sav:ticket:${t.id}`, JSON.stringify(t));
+          } catch {}
+        }
+      }
+
       // Supprime définitivement les fiches archivées depuis plus de 367
-      // jours (durée de conservation maximale).
-      const toDelete = loaded.filter((t) => t.archived && t.archivedAt && now - t.archivedAt >= DELETE_AFTER_MS);
+      // jours (durée de conservation maximale), et de même pour les
+      // fiches "Non réclamé" depuis plus de 367 jours.
+      const toDelete = loaded.filter(
+        (t) =>
+          (t.archived && t.archivedAt && now - t.archivedAt >= DELETE_AFTER_MS) ||
+          (t.nonReclame && t.nonReclameAt && now - t.nonReclameAt >= DELETE_AFTER_MS)
+      );
       let finalList = loaded;
       if (toDelete.length > 0) {
         for (const t of toDelete) {
@@ -944,10 +986,12 @@ export default function App() {
     let list;
     if (statutFilter === "Archivées") {
       list = tickets.filter((t) => t.archived);
+    } else if (statutFilter === "Non réclamé") {
+      list = tickets.filter((t) => t.nonReclame);
     } else if (SERVICES.includes(statutFilter)) {
-      list = tickets.filter((t) => !t.archived && matchesService(t, statutFilter));
+      list = tickets.filter((t) => !t.archived && !t.nonReclame && matchesService(t, statutFilter));
     } else {
-      list = tickets.filter((t) => !t.archived);
+      list = tickets.filter((t) => !t.archived && !t.nonReclame);
       if (statutFilter !== "Toutes") list = list.filter((t) => t.statut === statutFilter);
     }
     const q = search.trim().toLowerCase();
@@ -956,7 +1000,7 @@ export default function App() {
         [t.nom, t.marqueModele, t.telephone, t.imei, t.numero].filter(Boolean).some((f) => f.toLowerCase().includes(q))
       );
     }
-    if (statutFilter === "Archivées") {
+    if (statutFilter === "Archivées" || statutFilter === "Non réclamé") {
       // Tri alphabétique par défaut (utilisé aussi comme tri secondaire à
       // l'intérieur de chaque jour dans le classement mois/jour ci-dessous).
       list = list.slice().sort((a, b) => (a.nom || "").localeCompare(b.nom || "", "fr", { sensitivity: "base" }));
@@ -964,14 +1008,16 @@ export default function App() {
     return list;
   }, [tickets, search, statutFilter]);
 
-  // Classement des archives par mois puis par jour (basé sur la date
-  // d'archivage), du plus récent au plus ancien. À l'intérieur d'un même
-  // jour, les fiches restent triées par ordre alphabétique du nom.
-  const archivedGroups = useMemo(() => {
-    if (statutFilter !== "Archivées") return null;
+  // Classement par mois puis par jour, du plus récent au plus ancien, pour
+  // les onglets "Archivées" et "Non réclamé" — basé respectivement sur la
+  // date d'archivage ou la date de passage en "Non réclamé". À l'intérieur
+  // d'un même jour, les fiches restent triées par ordre alphabétique du nom.
+  const dateGroups = useMemo(() => {
+    if (statutFilter !== "Archivées" && statutFilter !== "Non réclamé") return null;
+    const dateField = statutFilter === "Archivées" ? "archivedAt" : "nonReclameAt";
     const months = {};
     filtered.forEach((t) => {
-      const d = new Date(t.archivedAt || t.updatedAt || t.createdAt || Date.now());
+      const d = new Date(t[dateField] || t.updatedAt || t.createdAt || Date.now());
       const monthKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
       const dayKey = `${monthKey}-${String(d.getDate()).padStart(2, "0")}`;
       if (!months[monthKey]) {
@@ -996,11 +1042,12 @@ export default function App() {
   }, [filtered, statutFilter]);
 
   const counts = useMemo(() => {
-    const active = tickets.filter((t) => !t.archived);
+    const active = tickets.filter((t) => !t.archived && !t.nonReclame);
     const c = { Toutes: active.length };
     STATUTS.forEach((s) => (c[s] = active.filter((t) => t.statut === s).length));
     SERVICES.forEach((s) => (c[s] = active.filter((t) => matchesService(t, s)).length));
     c["Archivées"] = tickets.filter((t) => t.archived).length;
+    c["Non réclamé"] = tickets.filter((t) => t.nonReclame).length;
     return c;
   }, [tickets]);
 
@@ -1045,12 +1092,35 @@ export default function App() {
     // Horodate le passage au statut "Restitué" (point de départ du délai
     // de 24h avant archivage automatique). Si le statut change à nouveau,
     // on annule l'archivage programmé.
+    const wasNonReclame = !!ticketData.nonReclame;
     if (toSave.statut === "Restitué") {
       if (!toSave.restituedAt) toSave.restituedAt = now;
+      // Si la fiche était "Non réclamé" et repasse directement à
+      // "Restitué", elle est archivée immédiatement (à la date du jour),
+      // sans attendre le délai normal de 24h.
+      if (wasNonReclame) {
+        toSave.archived = true;
+        toSave.archivedAt = now;
+      }
     } else {
       toSave.restituedAt = null;
       toSave.archived = false;
       toSave.archivedAt = null;
+    }
+    // Horodate le passage au statut "Appel/SMS" (point de départ du délai
+    // de 15 jours avant passage automatique en "Non réclamé"). Si le
+    // statut change à nouveau, le délai est annulé et repartira de zéro
+    // s'il repasse un jour en "Appel/SMS".
+    if (toSave.statut === "Appel/SMS") {
+      if (!toSave.appelSmsAt) toSave.appelSmsAt = now;
+    } else {
+      toSave.appelSmsAt = null;
+    }
+    // Dès que le statut n'est plus "Appel/SMS", la fiche redevient
+    // visible normalement : on annule son statut "Non réclamé".
+    if (toSave.statut !== "Appel/SMS") {
+      toSave.nonReclame = false;
+      toSave.nonReclameAt = null;
     }
     delete toSave._counterVal;
     await window.storage.set(`sav:ticket:${id}`, JSON.stringify(toSave));
@@ -1165,6 +1235,22 @@ export default function App() {
 
   const update = (patch) => setCurrent((c) => ({ ...c, ...patch }));
   const updateAcc = (patch) => setCurrent((c) => ({ ...c, accessoires: { ...c.accessoires, ...patch } }));
+  const addPieceRow = () => {
+    setCurrent((c) => {
+      const pieces = c.pieces || [];
+      if (pieces.length >= 10) return c;
+      return { ...c, pieces: [...pieces, { piece: "", tarifPiece: "", tarifMo: "", total: "" }] };
+    });
+  };
+  const updatePieceRow = (idx, patch) => {
+    setCurrent((c) => ({
+      ...c,
+      pieces: (c.pieces || []).map((p, i) => (i === idx ? { ...p, ...patch } : p)),
+    }));
+  };
+  const removePieceRow = (idx) => {
+    setCurrent((c) => ({ ...c, pieces: (c.pieces || []).filter((_, i) => i !== idx) }));
+  };
   const nomInvalid = nomTouched && current && !current.nom.trim();
   const telephoneInvalid = telephoneTouched && current && !current.telephone.trim();
   const cycleCheck = (key) => {
@@ -1409,6 +1495,14 @@ export default function App() {
         .sav-form-section { background:var(--graphite-900); border:1px solid var(--line); border-radius:10px; padding:18px 20px; margin-bottom:14px; }
         .sav-form-section h3 { font-size:12px; text-transform:uppercase; letter-spacing:0.06em; color:var(--amber); margin:0 0 14px; font-weight:600; }
         .sav-field-row { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-bottom:12px; }
+        .sav-pieces-add-btn { align-self:flex-end; width:38px; height:38px; border-radius:7px; border:1px solid var(--line); background:var(--graphite-800); color:var(--amber); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
+        .sav-pieces-add-btn:hover { border-color:var(--amber); }
+        .sav-pieces-add-btn:disabled { opacity:0.4; cursor:not-allowed; }
+        .sav-pieces-list { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
+        .sav-pieces-row { display:grid; grid-template-columns:1.3fr 1fr 1fr 1fr auto; gap:8px; align-items:center; }
+        .sav-pieces-row input { background:var(--graphite-800); border:1px solid var(--line); border-radius:7px; padding:8px 10px; color:var(--text); font-size:12.5px; font-family:inherit; width:100%; }
+        .sav-pieces-remove-btn { width:32px; height:32px; border-radius:7px; border:1px solid var(--line); background:var(--graphite-800); color:var(--red); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
+        .sav-pieces-remove-btn:hover { border-color:var(--red); }
         .sav-field-row:last-child { margin-bottom:0; }
         .sav-field label { display:block; font-size:11.5px; color:var(--text-muted); margin-bottom:5px; }
         .sav-field input, .sav-field select, .sav-field textarea { width:100%; background:var(--graphite-800); border:1px solid var(--line); border-radius:7px; padding:9px 10px; color:var(--text); font-size:13.5px; outline:none; font-family:inherit; }
@@ -1524,7 +1618,7 @@ export default function App() {
               )}
             </div>
             <div className="sav-tabs">
-              {["Toutes", "Reçu", ...SERVICES, ...STATUTS.filter((s) => s !== "Reçu"), "Archivées"].map((s) => {
+              {["Toutes", "Reçu", ...SERVICES, ...STATUTS.filter((s) => s !== "Reçu"), "Archivées", "Non réclamé"].map((s) => {
                 const color = tabColor(s);
                 const isActive = statutFilter === s;
                 return (
@@ -1546,6 +1640,11 @@ export default function App() {
               Fiches restituées, archivées automatiquement 24h après restitution — classées par mois puis par jour, et supprimées définitivement après 367 jours d'archivage.
             </div>
           )}
+          {statutFilter === "Non réclamé" && (
+            <div className="sav-archive-hint">
+              Fiches au statut Appel/SMS depuis plus de 15 jours, passées automatiquement en Non réclamé — classées par mois puis par jour, et supprimées définitivement après 367 jours dans cet état.
+            </div>
+          )}
 
           <div className="sav-body">
             {loading ? (
@@ -1564,9 +1663,9 @@ export default function App() {
                   <p>Aucune fiche ne correspond à cette recherche.</p>
                 )}
               </div>
-            ) : statutFilter === "Archivées" ? (
+            ) : statutFilter === "Archivées" || statutFilter === "Non réclamé" ? (
               <div className="sav-archive-groups">
-                {archivedGroups.map((month) => (
+                {dateGroups.map((month) => (
                   <div key={month.key} className="sav-archive-month">
                     <h4 className="sav-archive-month-title">{month.label}</h4>
                     {month.days.map((day) => (
@@ -1857,7 +1956,62 @@ export default function App() {
                     style={koOkColor(current.priseEnCharge) ? { color: koOkColor(current.priseEnCharge) } : undefined}
                   />
                 </div>
+                <button
+                  type="button"
+                  className="sav-pieces-add-btn"
+                  onClick={addPieceRow}
+                  disabled={(current.pieces || []).length >= 10}
+                  title="Ajouter une ligne de pièce détachée"
+                >
+                  <Plus size={16} />
+                </button>
               </div>
+              {(current.pieces || []).length > 0 && (
+                <div className="sav-pieces-list">
+                  {current.pieces.map((p, idx) => (
+                    <div key={idx} className="sav-pieces-row">
+                      <input
+                        className="sav-pieces-piece"
+                        value={p.piece}
+                        onChange={(e) => updatePieceRow(idx, { piece: e.target.value })}
+                        placeholder={`Pièce ${idx + 1}`}
+                      />
+                      <input
+                        className="sav-pieces-num"
+                        type="number"
+                        step="0.01"
+                        value={p.tarifPiece}
+                        onChange={(e) => updatePieceRow(idx, { tarifPiece: e.target.value })}
+                        placeholder="Tarif pièce € TTC"
+                      />
+                      <input
+                        className="sav-pieces-num"
+                        type="number"
+                        step="0.01"
+                        value={p.tarifMo}
+                        onChange={(e) => updatePieceRow(idx, { tarifMo: e.target.value })}
+                        placeholder="Main d'œuvre € TTC"
+                      />
+                      <input
+                        className="sav-pieces-num"
+                        type="number"
+                        step="0.01"
+                        value={p.total}
+                        onChange={(e) => updatePieceRow(idx, { total: e.target.value })}
+                        placeholder="Total € TTC"
+                      />
+                      <button
+                        type="button"
+                        className="sav-pieces-remove-btn"
+                        onClick={() => removePieceRow(idx)}
+                        title="Supprimer cette ligne"
+                      >
+                        <X size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
 
             <div className="sav-form-section">
