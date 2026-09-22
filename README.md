@@ -73,6 +73,21 @@ npm run dev      # interface sur le port 5173, avec proxy vers l'API
 
 Les fiches sont maintenant stockées dans une base **SQLite** côté serveur (`server/atelier-sav.db`), pas dans le navigateur. Tous les postes qui se connectent à l'adresse du serveur voient et modifient les mêmes fiches en temps réel.
 
+## Statuts, archivage et fiches non réclamées
+
+Une fiche passe par plusieurs statuts (Reçu, En cours, Attente retour client, Attente pièces, Prêt, Appel/SMS, Restitué). Deux mécanismes automatiques gèrent ensuite son cycle de vie :
+
+- **Archivage** : une fiche au statut **Restitué** depuis plus de **24h** est archivée automatiquement (ou manuellement à tout moment via l'icône dédiée sur sa carte). Les fiches archivées sont classées par mois puis par jour dans l'onglet **Archivées**, et supprimées **définitivement après 367 jours** d'archivage.
+- **Non réclamé** : une fiche au statut **Appel/SMS** depuis plus de **15 jours** bascule automatiquement dans l'onglet **Non réclamé** (juste après Archivées) et disparaît des onglets normaux. Même classement par mois/jour, et même suppression définitive après **367 jours**. Si le statut de la fiche change entre-temps, elle redevient visible normalement et le délai repart de zéro s'il repasse un jour en Appel/SMS. Si une fiche Non réclamé passe directement au statut Restitué, elle est archivée immédiatement (sans attendre les 24h habituelles).
+
+Ces deux suppressions définitives sont **irréversibles**, contrairement à l'archivage ou au passage en Non réclamé, qui peuvent toujours être annulés en changeant le statut de la fiche.
+
+## Tarification et pièces détachées
+
+En plus des champs **Total** et **Prise en charge à déduire**, un bouton **+** permet d'ajouter jusqu'à **10 lignes** de pièces détachées, chacune avec : désignation de la pièce, tarif pièce € TTC, main d'œuvre € TTC, et total € TTC. Chaque ligne peut être supprimée individuellement via son bouton **−**.
+
+Seule la **première ligne** est réutilisée automatiquement dans le message SMS "Devis / accord nécessaire" (les lignes suivantes ne sont là que pour le calcul/l'affichage interne). Si un champ de cette première ligne n'est pas rempli, le repère correspondant reste affiché tel quel dans le SMS (ex. `{PIECES_1}`) plutôt que d'envoyer un texte vide.
+
 ## Fonctionnalité SMS
 
 Un bouton **SMS** permet de prévenir un client par message, sans quitter l'application.
@@ -90,12 +105,12 @@ Selon le statut de la fiche, un choix de messages prédéfinis s'affiche :
 
 | Statut de la fiche | Messages proposés |
 |---|---|
-| **Appel/SMS** | Les 7 messages : Appareil prêt, En attente de pièces, Besoin d'informations/accord, Devis/accord, Rappel de récupération, Réparation impossible, Message personnalisé |
+| **Appel/SMS** | Les 8 messages : Appareil prêt, En attente de pièces, Besoin d'informations/accord, Devis/accord, Rappel de récupération, Réparation impossible, Refus de réparation, Message personnalisé |
 | **Attente retour client** | Besoin d'informations/accord, Devis/accord, Message personnalisé |
 | **Attente pièces** | En attente de pièces, Message personnalisé |
-| **En cours** | Uniquement Message personnalisé — sauf si le Service de la fiche est "Appeler le client" (voir plus bas), auquel cas Appel Client et Mess.Abs. s'ajoutent |
+| **En cours** | 📞 Appel Client (toujours visible) et Message personnalisé — Mess.Abs. s'ajoute en plus si le Service de la fiche est "Appeler le client" (voir plus bas) |
 
-Chaque message est construit sur une seule ligne, avec le nom et le téléphone du magasin insérés automatiquement (configurés une seule fois au premier envoi, modifiables ensuite depuis la fenêtre SMS).
+Chaque message est rédigé sur plusieurs lignes (retours à la ligne inclus dans le SMS), avec le nom et le téléphone du magasin insérés automatiquement (configurés une seule fois au premier envoi, modifiables ensuite depuis la fenêtre SMS). Le message "Devis / accord nécessaire" insère aussi automatiquement le détail de la première ligne de pièces détachées saisie dans la Tarification (voir plus bas) — désignation, tarif pièce, main d'œuvre et total.
 
 ### Service "Appeler le client"
 
