@@ -84,9 +84,9 @@ Ces deux suppressions définitives sont **irréversibles**, contrairement à l'a
 
 ## Tarification et pièces détachées
 
-En plus des champs **Total** et **Prise en charge à déduire**, un bouton **+** permet d'ajouter jusqu'à **10 lignes** de pièces détachées, chacune avec : désignation de la pièce, tarif pièce € TTC, main d'œuvre € TTC, et total € TTC. Chaque ligne peut être supprimée individuellement via son bouton **−**.
+En plus des champs **Total** et **Prise en charge à déduire**, un bouton **+** permet d'ajouter jusqu'à **10 lignes** de pièces détachées, chacune avec : désignation de la pièce et tarif pièce € TTC. Seule la **première ligne** propose en plus **Main d'œuvre € TTC** et **Total € TTC**. Chaque ligne peut être supprimée individuellement via son bouton **−**, et toutes sont alignées sur la même grille (mêmes largeurs de colonnes).
 
-Seule la **première ligne** est réutilisée automatiquement dans le message SMS "Devis / accord nécessaire" (les lignes suivantes ne sont là que pour le calcul/l'affichage interne). Si un champ de cette première ligne n'est pas rempli, le repère correspondant reste affiché tel quel dans le SMS (ex. `{PIECES_1}`) plutôt que d'envoyer un texte vide.
+Le champ **Total € TTC** (ligne 1) se calcule **automatiquement** : somme de tous les Tarif pièce (lignes 1 à 10) + Main d'œuvre (ligne 1) — il est en lecture seule, affiché en ambre. Les champs numériques valent **0** par défaut sur une nouvelle ligne.
 
 ## Fonctionnalité SMS
 
@@ -110,11 +110,13 @@ Selon le statut de la fiche, un choix de messages prédéfinis s'affiche :
 | **Attente pièces** | En attente de pièces, Message personnalisé |
 | **En cours** | 📞 Appel Client (toujours visible) et Message personnalisé — Mess.Abs. s'ajoute en plus si le Service de la fiche est "Appeler le client" (voir plus bas) |
 
-Chaque message est rédigé sur plusieurs lignes (retours à la ligne inclus dans le SMS), avec le nom et le téléphone du magasin insérés automatiquement (configurés une seule fois au premier envoi, modifiables ensuite depuis la fenêtre SMS). Le message "Devis / accord nécessaire" insère aussi automatiquement le détail de la première ligne de pièces détachées saisie dans la Tarification (voir plus bas) — désignation, tarif pièce, main d'œuvre et total.
+Chaque message est rédigé sur plusieurs lignes (retours à la ligne inclus dans le SMS), avec le nom et le téléphone du magasin insérés automatiquement (configurés une seule fois au premier envoi, modifiables ensuite depuis la fenêtre SMS).
+
+Le message **"Devis / accord nécessaire"** est **construit dynamiquement** à partir des lignes de pièces détachées (voir plus haut) : seules les lignes dont le nom de la pièce est rempli apparaissent, chacune avec son tarif ; la Main d'œuvre n'apparaît que si elle est supérieure à 0 ; le Total ne s'affiche que s'il y a au moins une ligne de détail. Si aucune ligne n'est remplie, le SMS reste un simple message d'accord, sans détail de prix.
 
 ### Service "Appeler le client"
 
-Dans le champ **Service** de la fiche, l'option **Appeler le client** (en blanc) fait apparaître un sous-menu pour préciser le département concerné (**Informatique** ou **Téléphonie**, avec leurs couleurs habituelles), ainsi qu'un sélecteur de **date et heure** dans la section "Interventions à prévoir".
+Dans le champ **Service** de la fiche (obligatoire, comme Nom et Téléphone), l'option **Appeler le client** (en blanc) fait apparaître un sous-menu pour préciser le département concerné (**Informatique** ou **Téléphonie**, avec leurs couleurs habituelles), ainsi qu'un sélecteur de **date et heure** dans la section "Interventions à prévoir".
 
 Sur la page principale, la fiche affiche alors par exemple `Informatique Appeler le client 12/12/26 à 10h20`, et cette date/heure passe automatiquement en **rouge** si elle est dépassée de plus de 30 minutes. La fiche apparaît aussi dans l'onglet du département concerné (Informatique ou Téléphonie), en plus de son statut habituel.
 
@@ -127,6 +129,10 @@ Quand ce service est actif, la fenêtre SMS propose en plus :
 Un clic sur SMS puis sur un message ouvre l'application SMS par défaut du téléphone (généralement Google Messages sur Android), avec le numéro du client et le texte déjà prêts. **L'envoi reste toujours manuel** : Atelier SAV ne prépare que le message, c'est vous qui appuyez sur Envoyer.
 
 Aucun historique de conversation n'est lu, synchronisé ou stocké par Atelier SAV — la fonctionnalité se limite à préparer le message.
+
+### Retour à l'accueil automatique
+
+Toujours dans la fenêtre de configuration du nom/téléphone du magasin, un réglage **"Retour à l'accueil automatique"** permet de choisir un délai d'inactivité (Désactivé par défaut, puis 22, 42, 62, 82... secondes par tranches de 20). Si une fiche ouverte en modification reste inactive ce délai, elle est automatiquement enregistrée (comme un clic sur "Enregistrer") puis l'application revient à la liste.
 
 ## Atelier SAV — Application Android
 

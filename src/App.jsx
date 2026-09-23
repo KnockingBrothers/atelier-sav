@@ -100,7 +100,8 @@ const SMS_TEMPLATES = [
   {
     key: "devis",
     label: "Devis / accord nécessaire",
-    text: "Bonjour, la réparation de votre {PIECES_1} coûte :\nPièce : {TARIF_PIÈCE1} € TTC\nMain d'œuvre : {TARIF_MO1} € TTC\nTotal : {TOTAL1} € TTC\nVotre accord requis avant intervention.\n{companyPhone} – {companyName}",
+    // Le texte est construit dynamiquement dans buildSmsMessage à partir
+    // des lignes de pièces réellement remplies (voir plus bas).
   },
   {
     key: "rappel",
@@ -169,6 +170,24 @@ function buildSmsMessage(templateKey, customText, config, ticket) {
     const text = (customText || "").trim();
     return `${text} ${companyName} ${companyPhone}`.trim();
   }
+  if (templateKey === "devis") {
+    // Message construit dynamiquement : seules les lignes de pièces
+    // réellement remplies (nom de la pièce saisi) sont incluses, avec
+    // leur tarif. La Main d'œuvre (ligne 1) n'apparaît que si elle est
+    // non nulle. Si rien n'est rempli, le SMS reste un simple message
+    // d'accord, sans détail de prix.
+    const pieces = (ticket && ticket.pieces) || [];
+    const filled = pieces.filter((p) => p.piece && p.piece.trim() !== "");
+    const lines = filled.map((p) => `${p.piece.trim()} : ${Number(p.tarifPiece) || 0} € TTC`);
+    const mo1 = Number(pieces[0]?.tarifMo) || 0;
+    if (mo1 > 0) lines.push(`Main d'œuvre : ${mo1} € TTC`);
+    if (lines.length > 0) {
+      const total = Number(pieces[0]?.total) || 0;
+      lines.push(`Total : ${total} € TTC`);
+      return `Bonjour, voici le détail de la réparation de votre appareil :\n${lines.join("\n")}\nVotre accord requis avant intervention.\n${companyPhone} – ${companyName}`;
+    }
+    return `Bonjour, votre accord est nécessaire avant intervention sur votre appareil.\n${companyPhone} – ${companyName}`;
+  }
   const tpl = SMS_TEMPLATES.find((t) => t.key === templateKey);
   if (!tpl) return "";
   let text = tpl.text.replace(/\{companyPhone\}/g, companyPhone).replace(/\{companyName\}/g, companyName);
@@ -185,16 +204,6 @@ function buildSmsMessage(templateKey, customText, config, ticket) {
     }
     text = text.replace("{date}", dateStr).replace("{heure}", heureStr);
   }
-  // Insère les valeurs de la première ligne de "pièces détachées"
-  // (Tarification) — uniquement la ligne 1, les lignes 2 à 10 sont
-  // ignorées côté SMS. Si un champ n'est pas rempli, le repère reste
-  // affiché tel quel dans le message (pas de remplacement).
-  const p1 = ticket && ticket.pieces && ticket.pieces[0];
-  text = text
-    .replace(/\{PIECES_1\}/g, p1 && p1.piece && p1.piece.trim() ? p1.piece.trim() : "{PIECES_1}")
-    .replace(/\{TARIF_PIÈCE1\}/g, p1 && p1.tarifPiece && String(p1.tarifPiece).trim() ? String(p1.tarifPiece).trim() : "{TARIF_PIÈCE1}")
-    .replace(/\{TARIF_MO1\}/g, p1 && p1.tarifMo && String(p1.tarifMo).trim() ? String(p1.tarifMo).trim() : "{TARIF_MO1}")
-    .replace(/\{TOTAL1\}/g, p1 && p1.total && String(p1.total).trim() ? String(p1.total).trim() : "{TOTAL1}");
   return text;
 }
 
@@ -1275,17 +1284,29 @@ export default function App() {
     setCurrent((c) => {
       const pieces = c.pieces || [];
       if (pieces.length >= 10) return c;
-      return { ...c, pieces: [...pieces, { piece: "", tarifPiece: "", tarifMo: "", total: "" }] };
+      return { ...c, pieces: [...pieces, { piece: "", tarifPiece: 0, tarifMo: 0, total: 0 }] };
     });
   };
   const updatePieceRow = (idx, patch) => {
-    setCurrent((c) => ({
-      ...c,
-      pieces: (c.pieces || []).map((p, i) => (i === idx ? { ...p, ...patch } : p)),
-    }));
+    setCurrent((c) => {
+      const pieces = (c.pieces || []).map((p, i) => (i === idx ? { ...p, ...patch } : p));
+      // Total (ligne 1) recalculé automatiquement à chaque changement :
+      // somme de tous les Tarif pièce (lignes 1 à 10) + Main d'œuvre
+      // (ligne 1 uniquement, les autres lignes n'en ont pas).
+      const sumTarifPieces = pieces.reduce((acc, p) => acc + (Number(p.tarifPiece) || 0), 0);
+      const mo1 = Number(pieces[0]?.tarifMo) || 0;
+      if (pieces[0]) pieces[0] = { ...pieces[0], total: sumTarifPieces + mo1 };
+      return { ...c, pieces };
+    });
   };
   const removePieceRow = (idx) => {
-    setCurrent((c) => ({ ...c, pieces: (c.pieces || []).filter((_, i) => i !== idx) }));
+    setCurrent((c) => {
+      const pieces = (c.pieces || []).filter((_, i) => i !== idx);
+      const sumTarifPieces = pieces.reduce((acc, p) => acc + (Number(p.tarifPiece) || 0), 0);
+      const mo1 = Number(pieces[0]?.tarifMo) || 0;
+      if (pieces[0]) pieces[0] = { ...pieces[0], total: sumTarifPieces + mo1 };
+      return { ...c, pieces };
+    });
   };
   const nomInvalid = nomTouched && current && !current.nom.trim();
   const telephoneInvalid = telephoneTouched && current && !current.telephone.trim();
@@ -1537,8 +1558,11 @@ export default function App() {
         .sav-pieces-add-btn:hover { border-color:var(--amber); }
         .sav-pieces-add-btn:disabled { opacity:0.4; cursor:not-allowed; }
         .sav-pieces-list { display:flex; flex-direction:column; gap:8px; margin-top:4px; }
+        .sav-pieces-header { margin-bottom:-2px; }
+        .sav-pieces-header label { display:block; font-size:11.5px; color:var(--text-muted); margin-bottom:0; }
         .sav-pieces-row { display:grid; grid-template-columns:1.3fr 1fr 1fr 1fr auto; gap:8px; align-items:center; }
         .sav-pieces-row input { background:var(--graphite-800); border:1px solid var(--line); border-radius:7px; padding:8px 10px; color:var(--text); font-size:12.5px; font-family:inherit; width:100%; }
+        .sav-pieces-row input[readonly] { color:var(--amber); font-weight:600; cursor:default; }
         .sav-pieces-remove-btn { width:32px; height:32px; border-radius:7px; border:1px solid var(--line); background:var(--graphite-800); color:var(--red); display:flex; align-items:center; justify-content:center; cursor:pointer; flex-shrink:0; }
         .sav-pieces-remove-btn:hover { border-color:var(--red); }
         .sav-field-row:last-child { margin-bottom:0; }
@@ -2016,48 +2040,90 @@ export default function App() {
               </div>
               {(current.pieces || []).length > 0 && (
                 <div className="sav-pieces-list">
-                  {current.pieces.map((p, idx) => (
-                    <div key={idx} className="sav-pieces-row">
-                      <input
-                        className="sav-pieces-piece"
-                        value={p.piece}
-                        onChange={(e) => updatePieceRow(idx, { piece: e.target.value })}
-                        placeholder={`Pièce ${idx + 1}`}
-                      />
-                      <input
-                        className="sav-pieces-num"
-                        type="number"
-                        step="0.01"
-                        value={p.tarifPiece}
-                        onChange={(e) => updatePieceRow(idx, { tarifPiece: e.target.value })}
-                        placeholder="Tarif pièce € TTC"
-                      />
-                      <input
-                        className="sav-pieces-num"
-                        type="number"
-                        step="0.01"
-                        value={p.tarifMo}
-                        onChange={(e) => updatePieceRow(idx, { tarifMo: e.target.value })}
-                        placeholder="Main d'œuvre € TTC"
-                      />
-                      <input
-                        className="sav-pieces-num"
-                        type="number"
-                        step="0.01"
-                        value={p.total}
-                        onChange={(e) => updatePieceRow(idx, { total: e.target.value })}
-                        placeholder="Total € TTC"
-                      />
-                      <button
-                        type="button"
-                        className="sav-pieces-remove-btn"
-                        onClick={() => removePieceRow(idx)}
-                        title="Supprimer cette ligne"
-                      >
-                        <X size={14} />
-                      </button>
-                    </div>
-                  ))}
+                  <div className="sav-pieces-row sav-pieces-header">
+                    <label>Pièce</label>
+                    <label>Tarif pièce € TTC</label>
+                    <label>Main d'œuvre € TTC</label>
+                    <label>Total € TTC</label>
+                    <span />
+                  </div>
+                  {current.pieces.map((p, idx) =>
+                    idx === 0 ? (
+                      <div key={idx} className="sav-pieces-row">
+                        <input
+                          className="sav-pieces-piece"
+                          value={p.piece}
+                          onChange={(e) => updatePieceRow(idx, { piece: e.target.value })}
+                          placeholder={`Pièce ${idx + 1}`}
+                        />
+                        <input
+                          className="sav-pieces-num"
+                          type="number"
+                          step="0.01"
+                          value={p.tarifPiece}
+                          onChange={(e) => updatePieceRow(idx, { tarifPiece: e.target.value })}
+                          placeholder="Tarif pièce € TTC"
+                        />
+                        <input
+                          className="sav-pieces-num"
+                          type="number"
+                          step="0.01"
+                          value={p.tarifMo}
+                          onChange={(e) => updatePieceRow(idx, { tarifMo: e.target.value })}
+                          placeholder="Main d'œuvre € TTC"
+                        />
+                        <input
+                          className="sav-pieces-num"
+                          type="number"
+                          step="0.01"
+                          value={p.total}
+                          readOnly
+                          title="Calculé automatiquement : somme des Tarif pièce (1 à 10) + Main d'œuvre"
+                          placeholder="Total € TTC"
+                        />
+                        <button
+                          type="button"
+                          className="sav-pieces-remove-btn"
+                          onClick={() => removePieceRow(idx)}
+                          title="Supprimer cette ligne"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    ) : (
+                      // Lignes 2 à 10 : uniquement Pièce et Tarif pièce,
+                      // sur la même grille horizontale que la ligne 1
+                      // (mêmes largeurs de colonnes), Main d'œuvre et
+                      // Total laissées vides (réservées à des pièces
+                      // annexes qui n'alimentent pas le SMS).
+                      <div key={idx} className="sav-pieces-row">
+                        <input
+                          className="sav-pieces-piece"
+                          value={p.piece}
+                          onChange={(e) => updatePieceRow(idx, { piece: e.target.value })}
+                          placeholder={`Pièce ${idx + 1}`}
+                        />
+                        <input
+                          className="sav-pieces-num"
+                          type="number"
+                          step="0.01"
+                          value={p.tarifPiece}
+                          onChange={(e) => updatePieceRow(idx, { tarifPiece: e.target.value })}
+                          placeholder="Tarif pièce € TTC"
+                        />
+                        <span />
+                        <span />
+                        <button
+                          type="button"
+                          className="sav-pieces-remove-btn"
+                          onClick={() => removePieceRow(idx)}
+                          title="Supprimer cette ligne"
+                        >
+                          <X size={14} />
+                        </button>
+                      </div>
+                    )
+                  )}
                 </div>
               )}
             </div>
