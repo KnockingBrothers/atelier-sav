@@ -1,8 +1,8 @@
 # Atelier — Prise en charge
 
-> Il n'existait pas de logiciel qui collait à mon atelier.
-> Alors je l'ai écrit.
-> Le SAV, sans le papier qui se perd.
+> **Il n'existait pas de logiciel qui collait à mon atelier.**
+> **Alors je l'ai écrit.**
+> **Le SAV, sans le papier qui se perd.**
 
 Atelier SAV remplace le formulaire papier de prise en charge par une application partagée entre plusieurs postes, sans dépendre d'un logiciel généraliste mal adapté à un atelier de réparation informatique et téléphonie.
 
@@ -10,7 +10,7 @@ Application de gestion des fiches de prise en charge SAV (client, appareil, chec
 
 **Licence :** [AGPL v3](LICENSE) — voir la section [Licence](#licence) plus bas.
 
-**Version :** V262009
+**Version :** V262409
 
 ## Prérequis
 
@@ -253,7 +253,7 @@ pm2 restart atelier-sav
 ```
 atelier-sav/
 ├── LICENSE                 texte complet de la licence AGPL v3
-├── VERSION                  identifiant de version courant (V14092026)
+├── VERSION                  identifiant de version courant, format VYYddMM (ex. V262409 = 24/09/2026)
 ├── .gitignore              exclut node_modules/, dist/, server/*.db, sauvegardes
 ├── README.md
 ├── package.json
