@@ -370,6 +370,7 @@ function blankTicket() {
     appelSmsAt: null,
     nonReclame: false,
     nonReclameAt: null,
+    reparationValideeParClient: false,
     nom: "",
     telephone: "",
     email: "",
@@ -1511,6 +1512,7 @@ export default function App() {
         .sav-btn.danger:hover { background:rgba(226,96,79,0.12); }
         .sav-btn:disabled { opacity:0.5; cursor:not-allowed; }
         .sav-header-right { display:flex; align-items:center; gap:14px; }
+        .sav-header-save-btn { width:38px; height:38px; padding:0; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
         .sav-header-barcode { display:flex; flex-direction:column; align-items:center; gap:3px; background:#fff; padding:6px 10px; border-radius:6px; }
         .sav-header-barcode span { font-size:9px; color:#000; letter-spacing:0.06em; }
         .sav-sync { display:flex; align-items:center; gap:7px; font-size:12px; color:var(--text-muted); white-space:nowrap; }
@@ -1788,6 +1790,14 @@ export default function App() {
                   <span className="sav-mono">{current.ean14}</span>
                 </div>
               )}
+              <button
+                className="sav-btn primary sav-header-save-btn"
+                onClick={saveTicket}
+                disabled={saving || !current.nom.trim() || !current.telephone.trim() || !current.service}
+                title="Enregistrer"
+              >
+                <Save size={16} />
+              </button>
             </div>
           </div>
 
@@ -1883,8 +1893,34 @@ export default function App() {
                 </div>
                 <div className="sav-field">
                   <label>Statut</label>
-                  <select value={current.statut} onChange={(e) => update({ statut: e.target.value })}>
-                    {STATUTS.map((s) => <option key={s} value={s}>{s}</option>)}
+                  <select
+                    value={current.statut}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "Réparation validée par le client") {
+                        // Option spéciale : ne reste jamais sélectionnée telle
+                        // quelle, elle remet immédiatement la fiche en "En
+                        // cours" tout en gardant une trace visible (texte
+                        // Lime affiché sous Panne constatée).
+                        update({ statut: "En cours", reparationValideeParClient: true });
+                      } else if (val === "Attente retour client") {
+                        // Si la fiche repasse en Attente retour client, le
+                        // marqueur "Réparation validée par le client" n'a
+                        // plus lieu d'être : on l'efface.
+                        update({ statut: val, reparationValideeParClient: false });
+                      } else {
+                        update({ statut: val });
+                      }
+                    }}
+                  >
+                    <option value="Reçu">Reçu</option>
+                    <option value="En cours">En cours</option>
+                    <option value="Attente retour client">Attente retour client</option>
+                    <option value="Réparation validée par le client">Réparation validée par le client</option>
+                    <option value="Attente pièces">Attente pièces</option>
+                    <option value="Prêt">Prêt</option>
+                    <option value="Appel/SMS">Appel/SMS</option>
+                    <option value="Restitué">Restitué</option>
                   </select>
                 </div>
               </div>
@@ -1996,6 +2032,11 @@ export default function App() {
                 <label>Panne constatée</label>
                 <textarea value={current.panne} onChange={(e) => update({ panne: e.target.value })} placeholder="Description de la panne" />
               </div>
+              {current.reparationValideeParClient && (
+                <div style={{ color: "lime", fontWeight: 600, fontSize: 13, margin: "0 0 12px" }}>
+                  Réparation validée par le client
+                </div>
+              )}
               <div className="sav-field">
                 <label>Diagnostic / Intervention</label>
                 <textarea
