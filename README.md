@@ -23,7 +23,7 @@ Atelier SAV remplace le formulaire papier de prise en charge par une application
 
 ### Prérequis
 
-- **Node.js** version **20.19 ou plus** (Vite 8 l'exige précisément ; Node 18, ou un 20.x trop ancien, ne suffisent plus). Sur Ubuntu Server ou Raspberry Pi (Raspberry Pi OS), installez la version LTS via NodeSource :
+- **Node.js** version 18 ou plus. Sur Ubuntu Server ou Raspberry Pi (Raspberry Pi OS), installez la version LTS via NodeSource :
   ```bash
   sudo apt install -y curl
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -

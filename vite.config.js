@@ -15,13 +15,8 @@ export default defineConfig({
         // donc son propre chunk séparé automatiquement. On isole aussi
         // les librairies tierces stables dans un chunk "vendor" dédié,
         // pour un bundle initial plus léger et mieux mis en cache.
-        // Syntaxe fonction (plutôt qu'objet) requise à partir de Vite 8.
-        manualChunks(id) {
-          if (id.includes("node_modules")) {
-            if (id.includes("react") || id.includes("lucide-react")) {
-              return "vendor";
-            }
-          }
+        manualChunks: {
+          vendor: ["react", "react-dom", "lucide-react"],
         },
       },
     },
