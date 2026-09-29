@@ -4,17 +4,26 @@
 > **Alors je l'ai écrit.**
 > **Le SAV, sans le papier qui se perd.**
 
-Atelier SAV remplace le formulaire papier de prise en charge par une application partagée entre plusieurs postes, sans dépendre d'un logiciel généraliste mal adapté à un atelier de réparation informatique et téléphonie.
-
-Application de gestion des fiches de prise en charge SAV (client, appareil, check-up, tarification), avec base de données partagée : toutes les fiches sont centralisées sur le serveur et visibles depuis tous les postes du réseau.
+Atelier SAV remplace le formulaire papier de prise en charge par une application de gestion des fiches SAV (client, appareil, check-up, tarification) partagée entre plusieurs postes : toutes les fiches sont centralisées sur le serveur et visibles en temps réel depuis tout le réseau, sans dépendre d'un logiciel généraliste mal adapté à un atelier de réparation informatique et téléphonie.
 
 **Licence :** [AGPL v3](LICENSE) — voir la section [Licence](#licence) plus bas.
-
 **Version :** V262409
 
-## Prérequis
+## Sommaire
 
-- **Node.js** version 18 ou plus. Sur Ubuntu Server ou Raspberry Pi (Raspberry Pi OS), installez la version LTS via NodeSource :
+- [Installation et déploiement](#installation-et-déploiement)
+- [Fonctionnement de l'application](#fonctionnement-de-lapplication)
+- [Fonctionnalité SMS](#fonctionnalité-sms)
+- [Application Android](#atelier-sav--application-android)
+- [Sauvegarde et restauration de la base de données](#sauvegarde-et-restauration-de-la-base-de-données)
+- [Structure du projet](#structure-du-projet)
+- [Licence](#licence)
+
+## Installation et déploiement
+
+### Prérequis
+
+- **Node.js** version **20.19 ou plus** (Vite 8 l'exige précisément ; Node 18, ou un 20.x trop ancien, ne suffisent plus). Sur Ubuntu Server ou Raspberry Pi (Raspberry Pi OS), installez la version LTS via NodeSource :
   ```bash
   sudo apt install -y curl
   curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
@@ -30,7 +39,7 @@ Application de gestion des fiches de prise en charge SAV (client, appareil, chec
   sudo apt install -y build-essential python3
   ```
 
-## Installation et lancement (production)
+### Installation et lancement (production)
 
 Dans le dossier du projet :
 
@@ -44,7 +53,7 @@ npm run server
 
 Raccourci qui fait les deux à la fois : `npm run start`.
 
-## Garder le serveur actif en permanence
+### Garder le serveur actif en permanence
 
 ```bash
 sudo npm install -g pm2
@@ -54,13 +63,13 @@ pm2 startup
 ```
 Suivez l'instruction affichée par `pm2 startup` pour que le serveur redémarre automatiquement après un reboot.
 
-## Ouvrir le port dans le pare-feu
+### Ouvrir le port dans le pare-feu
 
 ```bash
 sudo ufw allow 3001
 ```
 
-## Mode développement
+### Mode développement
 
 Pour travailler sur le code avec rechargement automatique, lancez dans deux terminaux séparés :
 
@@ -69,11 +78,40 @@ npm run server   # API sur le port 3001
 npm run dev      # interface sur le port 5173, avec proxy vers l'API
 ```
 
-## Stockage des données
+### Mettre à jour l'application après une modification
 
-Les fiches sont maintenant stockées dans une base **SQLite** côté serveur (`server/atelier-sav.db`), pas dans le navigateur. Tous les postes qui se connectent à l'adresse du serveur voient et modifient les mêmes fiches en temps réel.
+Un script `deploy.sh` est fourni pour automatiser les mises à jour depuis votre PC :
 
-## Statuts, archivage et fiches non réclamées
+1. Ouvrez `deploy.sh` et modifiez les 4 premières lignes avec vos informations :
+   ```bash
+   SERVER_USER="votre_utilisateur"
+   SERVER_HOST="192.168.1.50"
+   SERVER_PATH="/home/votre_utilisateur/atelier-sav"
+   PM2_APP_NAME="atelier-sav"
+   ```
+2. Rendez-le exécutable une seule fois : `chmod +x deploy.sh`
+3. À chaque mise à jour, lancez simplement :
+   ```bash
+   ./deploy.sh
+   ```
+   Il envoie les fichiers modifiés vers le serveur (via `rsync`, en gardant votre base de données intacte), réinstalle les dépendances si besoin, reconstruit l'application et redémarre le service automatiquement.
+
+Prérequis sur votre PC : `rsync` et un accès SSH par clé (sans mot de passe) au serveur — sinon le script vous demandera le mot de passe à chaque étape. Sous Windows, utilisez WSL ou Git Bash pour l'exécuter.
+
+**Mise à jour manuelle (sans le script)**, directement sur le serveur :
+```bash
+cd atelier-sav
+npm run build
+pm2 restart atelier-sav
+```
+
+## Fonctionnement de l'application
+
+### Stockage des données
+
+Les fiches sont stockées dans une base **SQLite** côté serveur (`server/atelier-sav.db`), pas dans le navigateur. Tous les postes qui se connectent à l'adresse du serveur voient et modifient les mêmes fiches en temps réel.
+
+### Statuts, archivage et fiches non réclamées
 
 Une fiche passe par plusieurs statuts (Reçu, En cours, Attente retour client, Attente pièces, Prêt, Appel/SMS, Restitué). Deux mécanismes automatiques gèrent ensuite son cycle de vie :
 
@@ -82,11 +120,20 @@ Une fiche passe par plusieurs statuts (Reçu, En cours, Attente retour client, A
 
 Ces deux suppressions définitives sont **irréversibles**, contrairement à l'archivage ou au passage en Non réclamé, qui peuvent toujours être annulés en changeant le statut de la fiche.
 
-## Tarification et pièces détachées
+**Classement par mois et par jour** — tous les onglets de la page principale (Toutes, Reçu, Informatique, Téléphonie, etc.) sont classés du plus récent au plus ancien, et les fiches d'un même jour par ordre alphabétique du nom du client. La date de référence dépend de l'onglet : date de **création de la fiche** (prise en charge) pour les onglets normaux, date d'**archivage** pour Archivées, et date de **passage en Non réclamé** pour Non réclamé.
+
+### Tarification et pièces détachées
 
 En plus des champs **Total** et **Prise en charge à déduire**, un bouton **+** permet d'ajouter jusqu'à **10 lignes** de pièces détachées, chacune avec : désignation de la pièce et tarif pièce € TTC. Seule la **première ligne** propose en plus **Main d'œuvre € TTC** et **Total € TTC**. Chaque ligne peut être supprimée individuellement via son bouton **−**, et toutes sont alignées sur la même grille (mêmes largeurs de colonnes).
 
 Le champ **Total € TTC** (ligne 1) se calcule **automatiquement** : somme de tous les Tarif pièce (lignes 1 à 10) + Main d'œuvre (ligne 1) — il est en lecture seule, affiché en ambre. Les champs numériques valent **0** par défaut sur une nouvelle ligne.
+
+### Sauvegarde automatique d'une fiche en cours d'édition
+
+Pendant qu'une fiche est ouverte en modification, deux mécanismes évitent toute perte de saisie :
+
+- **Sauvegarde silencieuse toutes les 20 secondes**, sans quitter la fiche, dès que Nom, Téléphone et Service sont remplis. Un indicateur en haut de la fiche affiche "Sauvegardé il y a X" (ou "Sauvegarde..." pendant l'enregistrement).
+- **Retour à l'accueil automatique** (optionnel) : un réglage, accessible depuis la fenêtre de configuration du nom/téléphone du magasin (bouton SMS), permet de choisir un délai d'inactivité — Désactivé par défaut, puis 22, 42, 62, 82... secondes par tranches de 20. Si la fiche reste inactive ce délai, elle est automatiquement enregistrée (comme un clic sur "Enregistrer") puis l'application revient à la liste.
 
 ## Fonctionnalité SMS
 
@@ -114,6 +161,12 @@ Chaque message est rédigé sur plusieurs lignes (retours à la ligne inclus dan
 
 Le message **"Devis / accord nécessaire"** est **construit dynamiquement** à partir des lignes de pièces détachées (voir plus haut) : seules les lignes dont le nom de la pièce est rempli apparaissent, chacune avec son tarif ; la Main d'œuvre n'apparaît que si elle est supérieure à 0 ; le Total ne s'affiche que s'il y a au moins une ligne de détail. Si aucune ligne n'est remplie, le SMS reste un simple message d'accord, sans détail de prix.
 
+### Comment ça fonctionne
+
+Un clic sur SMS puis sur un message ouvre l'application SMS par défaut du téléphone (généralement Google Messages sur Android), avec le numéro du client et le texte déjà prêts. **L'envoi reste toujours manuel** : Atelier SAV ne prépare que le message, c'est vous qui appuyez sur Envoyer.
+
+Aucun historique de conversation n'est lu, synchronisé ou stocké par Atelier SAV — la fonctionnalité se limite à préparer le message.
+
 ### Service "Appeler le client"
 
 Dans le champ **Service** de la fiche (obligatoire, comme Nom et Téléphone), l'option **Appeler le client** (en blanc) fait apparaître un sous-menu pour préciser le département concerné (**Informatique** ou **Téléphonie**, avec leurs couleurs habituelles), ainsi qu'un sélecteur de **date et heure** dans la section "Interventions à prévoir".
@@ -124,15 +177,13 @@ Quand ce service est actif, la fenêtre SMS propose en plus :
 - **📞 Appel Client** : ouvre directement le composeur téléphonique (`tel:`) avec le numéro déjà renseigné sur la fiche — un vrai appel, pas un message.
 - **Mess.Abs.** : message prédéfini pour prévenir que l'appel prévu n'a pas abouti, avec la date et l'heure de la tentative insérées automatiquement dans le texte.
 
-### Comment ça fonctionne
+### Service "Sur site"
 
-Un clic sur SMS puis sur un message ouvre l'application SMS par défaut du téléphone (généralement Google Messages sur Android), avec le numéro du client et le texte déjà prêts. **L'envoi reste toujours manuel** : Atelier SAV ne prépare que le message, c'est vous qui appuyez sur Envoyer.
+Sur le même principe qu'« Appeler le client » : l'option **Sur site** (en blanc) fait apparaître un sous-menu pour préciser le type concerné (**Informatique**, ou **Autre** en vert), ainsi que le même sélecteur de **date et heure** dans "Interventions à prévoir". En dessous apparaît en plus un champ **Adresse**, **obligatoire**, avec une auto-complétion basée sur la **Base Adresse Nationale** (IGN / État français, api-adresse.data.gouv.fr) — les suggestions apparaissent au fil de la saisie, sans empêcher de continuer à taper librement si aucune ne convient.
 
-Aucun historique de conversation n'est lu, synchronisé ou stocké par Atelier SAV — la fonctionnalité se limite à préparer le message.
+Une fiche "Sur site" n'a que **trois statuts possibles** : Reçu, En cours, Prêt. Particularité : passer au statut **Prêt archive automatiquement la fiche**, sans attendre le délai habituel de 24h après Restitué.
 
-### Retour à l'accueil automatique
-
-Toujours dans la fenêtre de configuration du nom/téléphone du magasin, un réglage **"Retour à l'accueil automatique"** permet de choisir un délai d'inactivité (Désactivé par défaut, puis 22, 42, 62, 82... secondes par tranches de 20). Si une fiche ouverte en modification reste inactive ce délai, elle est automatiquement enregistrée (comme un clic sur "Enregistrer") puis l'application revient à la liste.
+Dans le statut **En cours**, le bouton SMS est disponible même sans numéro de téléphone renseigné, avec un message supplémentaire **"Récap Sur site"** : contrairement aux autres messages, celui-ci s'ouvre **sans destinataire pré-rempli** (vous choisissez vous-même à qui l'envoyer) et ne contient que Nom, Téléphone, date, heure et adresse — rien d'autre, ce n'est pas un message destiné au client.
 
 ## Atelier SAV — Application Android
 
@@ -220,34 +271,6 @@ Une sauvegarde stockée sur le même disque que le serveur ne protège **pas** c
 
 Ouvrez les fichiers `backup.sh` et `restore.sh` pour lire le détail des étapes, à adapter avec l'adresse IP et le nom réel de votre partage.
 
-## Mettre à jour l'application après une modification
-
-Un script `deploy.sh` est fourni pour automatiser les mises à jour depuis votre PC :
-
-1. Ouvrez `deploy.sh` et modifiez les 4 premières lignes avec vos informations :
-   ```bash
-   SERVER_USER="votre_utilisateur"
-   SERVER_HOST="192.168.1.50"
-   SERVER_PATH="/home/votre_utilisateur/atelier-sav"
-   PM2_APP_NAME="atelier-sav"
-   ```
-2. Rendez-le exécutable une seule fois : `chmod +x deploy.sh`
-3. À chaque mise à jour, lancez simplement :
-   ```bash
-   ./deploy.sh
-   ```
-   Il envoie les fichiers modifiés vers le serveur (via `rsync`, en gardant votre base de données intacte), réinstalle les dépendances si besoin, reconstruit l'application et redémarre le service automatiquement.
-
-Prérequis sur votre PC : `rsync` et un accès SSH par clé (sans mot de passe) au serveur — sinon le script vous demandera le mot de passe à chaque étape. Sous Windows, utilisez WSL ou Git Bash pour l'exécuter.
-
-## Mise à jour manuelle (sans le script)
-
-```bash
-cd atelier-sav
-npm run build
-pm2 restart atelier-sav
-```
-
 ## Structure du projet
 
 ```
@@ -284,4 +307,3 @@ En résumé (ceci ne remplace pas le texte complet de la licence, voir le fichie
 - Le logiciel est fourni **sans aucune garantie**, dans les limites permises par la loi.
 
 Copyright © Serge Mata.
-

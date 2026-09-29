@@ -48,20 +48,27 @@ const SERVICE_COLOR = {
   "Imprimante": "chocolate",
   "Tablette": "burlywood",
   "Appeler le client": "white",
+  "Sur site": "white",
+  "Autre": "green",
 };
 
 const SERVICES = ["Informatique", "Téléphonie", "Imprimante", "Tablette"];
 
 // Une fiche appartient à un service donné soit parce que son champ
 // "service" le vaut directement, soit parce qu'elle est "Appeler le
-// client" avec ce département comme service concerné — dans ce cas
-// elle doit aussi apparaître dans l'onglet Informatique/Téléphonie
-// correspondant sur la page principale.
+// client" (ou "Sur site") avec ce département comme service concerné —
+// dans ce cas elle doit aussi apparaître dans l'onglet Informatique/
+// Téléphonie correspondant sur la page principale ("Autre" n'a pas
+// d'onglet dédié, ça reste sans effet pour ce choix).
 function matchesService(ticket, service) {
   if (ticket.service === service) return true;
   if (ticket.service === "Appeler le client" && ticket.appelDepartement === service) return true;
+  if (ticket.service === "Sur site" && ticket.surSiteType === service) return true;
   return false;
 }
+
+// Statuts autorisés pour une fiche "Sur site" : uniquement ces trois-là.
+const SUR_SITE_STATUTS = ["Reçu", "En cours", "Prêt"];
 
 // ── Fonctionnalité SMS (minimaliste, Android + Google Messages uniquement) ──
 // Atelier SAV ne fait que préparer le message et ouvrir l'application SMS
@@ -126,6 +133,16 @@ const SMS_TEMPLATES = [
     // getSmsTemplatesForStatus) — utilise la date/heure d'appel prévue.
     appelOnly: true,
   },
+  {
+    key: "surSiteRecap",
+    label: "Récap Sur site (sans destinataire)",
+    // Uniquement proposé pour une fiche "Sur site" au statut "En cours"
+    // (voir getSmsTemplatesForStatus). Ne sert pas à contacter le client :
+    // le texte est construit à part dans buildSmsMessage, et envoyé sans
+    // numéro de destinataire pré-rempli (voir sendSmsTemplate) pour que
+    // l'utilisateur choisisse lui-même à qui le transmettre.
+    surSiteOnly: true,
+  },
   { key: "custom", label: "Message personnalisé" },
 ];
 
@@ -144,7 +161,8 @@ const SMS_TEMPLATE_KEYS_BY_STATUS = {
   // personnalisé" est proposée — Mess.Abs. s'ajoute automatiquement
   // (voir getSmsTemplatesForStatus) si le Service est "Appeler le
   // client", et le bouton "Appel Client" suit la même condition côté
-  // rendu du modal, indépendamment du statut.
+  // rendu du modal, indépendamment du statut. Pour une fiche "Sur
+  // site", "Récap Sur site" s'ajoute aussi ici (voir plus bas).
   "En cours": ["custom"],
 };
 
@@ -158,6 +176,15 @@ function getSmsTemplatesForStatus(statut, service) {
       list = customIdx !== -1
         ? [...list.slice(0, customIdx), messAbs, ...list.slice(customIdx)]
         : [...list, messAbs];
+    }
+  }
+  if (service === "Sur site" && statut === "En cours") {
+    const recap = SMS_TEMPLATES.find((t) => t.key === "surSiteRecap");
+    if (recap && !list.includes(recap)) {
+      const customIdx = list.findIndex((t) => t.key === "custom");
+      list = customIdx !== -1
+        ? [...list.slice(0, customIdx), recap, ...list.slice(customIdx)]
+        : [...list, recap];
     }
   }
   return list;
@@ -187,6 +214,23 @@ function buildSmsMessage(templateKey, customText, config, ticket) {
       return `Bonjour, voici le détail de la réparation de votre appareil :\n${lines.join("\n")}\nVotre accord requis avant intervention.\n${companyPhone} – ${companyName}`;
     }
     return `Bonjour, votre accord est nécessaire avant intervention sur votre appareil.\n${companyPhone} – ${companyName}`;
+  }
+  if (templateKey === "surSiteRecap") {
+    // Récapitulatif interne pour l'intervention "Sur site" : uniquement
+    // Nom, Téléphone, date, heure et adresse — rien de plus (pas de
+    // "Bonjour", pas de nom/téléphone du magasin, ce n'est pas un message
+    // destiné au client).
+    let dateStr = "";
+    let heureStr = "";
+    if (ticket && ticket.appelDate) {
+      const [y, m, d] = ticket.appelDate.split("-");
+      if (y && m && d) dateStr = `${d}/${m}/${y}`;
+    }
+    if (ticket && ticket.appelHeure) {
+      const [h, min] = ticket.appelHeure.split(":");
+      if (h && min) heureStr = `${h}h${min}`;
+    }
+    return `Nom : ${ticket?.nom || ""}\nTéléphone : ${ticket?.telephone || ""}\nDate : ${dateStr}\nHeure : ${heureStr}\nAdresse : ${ticket?.adresse || ""}`;
   }
   const tpl = SMS_TEMPLATES.find((t) => t.key === templateKey);
   if (!tpl) return "";
@@ -378,6 +422,8 @@ function blankTicket() {
     appelDepartement: "",
     appelDate: "",
     appelHeure: "",
+    surSiteType: "",
+    adresse: "",
     motDePasse: "",
     codeDeverrouillage: "",
     schema: [],
@@ -819,6 +865,8 @@ export default function App() {
   const [nomTouched, setNomTouched] = useState(false);
   const [telephoneTouched, setTelephoneTouched] = useState(false);
   const [serviceTouched, setServiceTouched] = useState(false);
+  const [adresseTouched, setAdresseTouched] = useState(false);
+  const [adresseSuggestions, setAdresseSuggestions] = useState([]);
   const [lastAutoSave, setLastAutoSave] = useState(null);
   const [autoSaving, setAutoSaving] = useState(false);
   const [printMode, setPrintMode] = useState("ticket");
@@ -1020,21 +1068,22 @@ export default function App() {
         [t.nom, t.marqueModele, t.telephone, t.imei, t.numero].filter(Boolean).some((f) => f.toLowerCase().includes(q))
       );
     }
-    if (statutFilter === "Archivées" || statutFilter === "Non réclamé") {
-      // Tri alphabétique par défaut (utilisé aussi comme tri secondaire à
-      // l'intérieur de chaque jour dans le classement mois/jour ci-dessous).
-      list = list.slice().sort((a, b) => (a.nom || "").localeCompare(b.nom || "", "fr", { sensitivity: "base" }));
-    }
+    // Tri alphabétique par nom pour tous les onglets (utilisé comme tri
+    // secondaire à l'intérieur de chaque jour dans le classement mois/jour
+    // ci-dessous).
+    list = list.slice().sort((a, b) => (a.nom || "").localeCompare(b.nom || "", "fr", { sensitivity: "base" }));
     return list;
   }, [tickets, search, statutFilter]);
 
   // Classement par mois puis par jour, du plus récent au plus ancien, pour
-  // les onglets "Archivées" et "Non réclamé" — basé respectivement sur la
-  // date d'archivage ou la date de passage en "Non réclamé". À l'intérieur
-  // d'un même jour, les fiches restent triées par ordre alphabétique du nom.
+  // tous les onglets. La date de référence dépend de l'onglet : date
+  // d'archivage pour "Archivées", date de passage en "Non réclamé" pour
+  // "Non réclamé", et date de création de la fiche (prise en charge) pour
+  // tous les autres. À l'intérieur d'un même jour, les fiches restent
+  // triées par ordre alphabétique du nom.
   const dateGroups = useMemo(() => {
-    if (statutFilter !== "Archivées" && statutFilter !== "Non réclamé") return null;
-    const dateField = statutFilter === "Archivées" ? "archivedAt" : "nonReclameAt";
+    const dateField =
+      statutFilter === "Archivées" ? "archivedAt" : statutFilter === "Non réclamé" ? "nonReclameAt" : "createdAt";
     const months = {};
     filtered.forEach((t) => {
       const d = new Date(t[dateField] || t.updatedAt || t.createdAt || Date.now());
@@ -1081,6 +1130,8 @@ export default function App() {
     setNomTouched(false);
     setTelephoneTouched(false);
     setServiceTouched(false);
+    setAdresseTouched(false);
+    setAdresseSuggestions([]);
     setLastAutoSave(null);
     setView("edit");
   }, []);
@@ -1090,6 +1141,8 @@ export default function App() {
     setNomTouched(false);
     setTelephoneTouched(false);
     setServiceTouched(false);
+    setAdresseTouched(false);
+    setAdresseSuggestions([]);
     setLastAutoSave(null);
     setView("edit");
   };
@@ -1100,6 +1153,8 @@ export default function App() {
     setNomTouched(false);
     setTelephoneTouched(false);
     setServiceTouched(false);
+    setAdresseTouched(false);
+    setAdresseSuggestions([]);
     setLastAutoSave(null);
   };
 
@@ -1144,6 +1199,13 @@ export default function App() {
     if (toSave.statut !== "Appel/SMS") {
       toSave.nonReclame = false;
       toSave.nonReclameAt = null;
+    }
+    // Particularité "Sur site" : le statut "Prêt" archive la fiche
+    // immédiatement (appliqué après les règles ci-dessus pour ne pas être
+    // écrasé par la remise à zéro de "archived" liée au statut).
+    if (toSave.service === "Sur site" && toSave.statut === "Prêt") {
+      toSave.archived = true;
+      toSave.archivedAt = now;
     }
     delete toSave._counterVal;
     await window.storage.set(`sav:ticket:${id}`, JSON.stringify(toSave));
@@ -1193,6 +1255,35 @@ export default function App() {
   useEffect(() => {
     currentRef.current = current;
   }, [current]);
+
+  // Autocomplétion d'adresse via la Base Adresse Nationale (IGN / État
+  // français, api-adresse.data.gouv.fr — publique, sans clé). Propose des
+  // suggestions mais n'empêche jamais de continuer à taper librement.
+  useEffect(() => {
+    if (view !== "edit" || !current || current.service !== "Sur site") {
+      setAdresseSuggestions([]);
+      return;
+    }
+    const q = (current.adresse || "").trim();
+    if (q.length < 3) {
+      setAdresseSuggestions([]);
+      return;
+    }
+    let cancelled = false;
+    const timeout = setTimeout(async () => {
+      try {
+        const res = await fetch(`https://api-adresse.data.gouv.fr/search/?q=${encodeURIComponent(q)}&limit=5`);
+        const data = await res.json();
+        if (!cancelled) setAdresseSuggestions((data && data.features) || []);
+      } catch {
+        if (!cancelled) setAdresseSuggestions([]);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeout);
+    };
+  }, [current?.adresse, current?.service, view]);
 
   useEffect(() => {
     if (view !== "edit") return;
@@ -1312,6 +1403,8 @@ export default function App() {
   const nomInvalid = nomTouched && current && !current.nom.trim();
   const telephoneInvalid = telephoneTouched && current && !current.telephone.trim();
   const serviceInvalid = serviceTouched && current && !current.service;
+  const adresseInvalid =
+    adresseTouched && current && current.service === "Sur site" && !current.adresse.trim();
   const cycleCheck = (key) => {
     setCurrent((c) => {
       const cur = c.checkup[key];
@@ -1393,7 +1486,9 @@ export default function App() {
       return;
     }
     const message = buildSmsMessage(key, "", companyConfig, current);
-    openSms(current.telephone, message);
+    // "Récap Sur site" n'est pas destiné au client : on ouvre l'app SMS
+    // sans destinataire pré-rempli, à choisir soi-même.
+    openSms(key === "surSiteRecap" ? "" : current.telephone, message);
     setSmsModalOpen(false);
   };
 
@@ -1462,6 +1557,19 @@ export default function App() {
             <span style={{ color: SERVICE_COLOR[t.appelDepartement] || "var(--text-muted)" }}>{t.appelDepartement} </span>
           )}
           <span style={{ color: SERVICE_COLOR["Appeler le client"] }}>Appeler le client</span>
+          {(t.appelDate || t.appelHeure) && (
+            <span style={{ color: isAppelOverdue(t.appelDate, t.appelHeure) ? "var(--red)" : "var(--text-muted)" }}>
+              {" "}
+              {formatAppelDateHeure(t.appelDate, t.appelHeure)}
+            </span>
+          )}
+        </div>
+      ) : t.service === "Sur site" ? (
+        <div className="service">
+          {t.surSiteType && (
+            <span style={{ color: SERVICE_COLOR[t.surSiteType] || "var(--text-muted)" }}>{t.surSiteType} </span>
+          )}
+          <span style={{ color: SERVICE_COLOR["Sur site"] }}>Sur site</span>
           {(t.appelDate || t.appelHeure) && (
             <span style={{ color: isAppelOverdue(t.appelDate, t.appelHeure) ? "var(--red)" : "var(--text-muted)" }}>
               {" "}
@@ -1588,6 +1696,9 @@ export default function App() {
         .sav-switch-badge { font-size:9.5px; font-weight:700; padding:2px 6px; border-radius:5px; min-width:38px; text-align:center; white-space:nowrap; flex-shrink:0; }
         .sav-tasks-detail-input { margin-top:8px; width:100%; background:var(--graphite-800); border:1px solid var(--line); border-radius:7px; padding:8px 10px; color:var(--text); font-size:13px; font-family:inherit; }
         .sav-appel-datetime { margin-top:10px; }
+        .sav-adresse-suggestions { position:absolute; z-index:5; top:100%; left:0; right:0; margin-top:2px; background:var(--graphite-900); border:1px solid var(--line); border-radius:7px; overflow:hidden; box-shadow:0 6px 16px rgba(0,0,0,0.35); }
+        .sav-adresse-suggestion { display:block; width:100%; text-align:left; padding:8px 10px; background:none; border:none; color:var(--text); font-size:12.5px; cursor:pointer; }
+        .sav-adresse-suggestion:hover { background:var(--graphite-800); color:var(--amber); }
         .sav-appel-datetime input[type=date], .sav-appel-datetime input[type=time] { background:var(--graphite-800); border:1px solid var(--line); border-radius:7px; padding:8px 10px; color:var(--text); font-size:13px; font-family:inherit; color-scheme:dark; }
         .sav-tasks-columns-wrap { display:flex; gap:10px; align-items:flex-start; }
         .sav-tasks-columns-wrap .sav-switch-grid { flex:1; }
@@ -1727,7 +1838,7 @@ export default function App() {
                   <p>Aucune fiche ne correspond à cette recherche.</p>
                 )}
               </div>
-            ) : statutFilter === "Archivées" || statutFilter === "Non réclamé" ? (
+            ) : (
               <div className="sav-archive-groups">
                 {dateGroups.map((month) => (
                   <div key={month.key} className="sav-archive-month">
@@ -1742,10 +1853,6 @@ export default function App() {
                     ))}
                   </div>
                 ))}
-              </div>
-            ) : (
-              <div className="sav-grid">
-                {filtered.map((t) => renderCard(t))}
               </div>
             )}
           </div>
@@ -1841,7 +1948,17 @@ export default function App() {
                   <label>Service <span style={{ color: "var(--red)" }}>*</span></label>
                   <select
                     value={current.service}
-                    onChange={(e) => update({ service: e.target.value })}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      if (val === "Sur site" && !SUR_SITE_STATUTS.includes(current.statut)) {
+                        // Une fiche "Sur site" n'accepte que Reçu / En cours /
+                        // Prêt : si le statut actuel n'en fait pas partie, on
+                        // le ramène à "Reçu" pour rester cohérent.
+                        update({ service: val, statut: "Reçu" });
+                      } else {
+                        update({ service: val });
+                      }
+                    }}
                     onBlur={() => setServiceTouched(true)}
                     style={{
                       color: SERVICE_COLOR[current.service] || undefined,
@@ -1855,6 +1972,7 @@ export default function App() {
                     <option value="Imprimante" style={{ color: SERVICE_COLOR["Imprimante"] }}>Imprimante</option>
                     <option value="Tablette" style={{ color: SERVICE_COLOR["Tablette"] }}>Tablette</option>
                     <option value="Appeler le client" style={{ color: SERVICE_COLOR["Appeler le client"] }}>Appeler le client</option>
+                    <option value="Sur site" style={{ color: SERVICE_COLOR["Sur site"] }}>Sur site</option>
                   </select>
                   {serviceInvalid && (
                     <span style={{ display: "block", marginTop: 4, fontSize: 11, color: "var(--red)" }}>
@@ -1874,6 +1992,21 @@ export default function App() {
                       <option value="">Concerne : -</option>
                       <option value="Informatique" style={{ color: SERVICE_COLOR["Informatique"] }}>Informatique</option>
                       <option value="Téléphonie" style={{ color: SERVICE_COLOR["Téléphonie"] }}>Téléphonie</option>
+                    </select>
+                  )}
+                  {current.service === "Sur site" && (
+                    <select
+                      value={current.surSiteType}
+                      onChange={(e) => update({ surSiteType: e.target.value })}
+                      style={{
+                        marginTop: 6,
+                        color: SERVICE_COLOR[current.surSiteType] || undefined,
+                        fontWeight: current.surSiteType ? 600 : 400,
+                      }}
+                    >
+                      <option value="">Concerne : -</option>
+                      <option value="Informatique" style={{ color: SERVICE_COLOR["Informatique"] }}>Informatique</option>
+                      <option value="Autre" style={{ color: SERVICE_COLOR["Autre"] }}>Autre</option>
                     </select>
                   )}
                 </div>
@@ -1915,13 +2048,26 @@ export default function App() {
                   >
                     <option value="Reçu">Reçu</option>
                     <option value="En cours">En cours</option>
-                    <option value="Attente retour client">Attente retour client</option>
-                    <option value="Réparation validée par le client">Réparation validée par le client</option>
-                    <option value="Attente pièces">Attente pièces</option>
+                    {current.service !== "Sur site" && (
+                      <>
+                        <option value="Attente retour client">Attente retour client</option>
+                        <option value="Réparation validée par le client">Réparation validée par le client</option>
+                        <option value="Attente pièces">Attente pièces</option>
+                      </>
+                    )}
                     <option value="Prêt">Prêt</option>
-                    <option value="Appel/SMS">Appel/SMS</option>
-                    <option value="Restitué">Restitué</option>
+                    {current.service !== "Sur site" && (
+                      <>
+                        <option value="Appel/SMS">Appel/SMS</option>
+                        <option value="Restitué">Restitué</option>
+                      </>
+                    )}
                   </select>
+                  {current.service === "Sur site" && (
+                    <span style={{ display: "block", marginTop: 4, fontSize: 11, color: "var(--text-muted)" }}>
+                      Une fiche "Sur site" n'a que les statuts Reçu, En cours et Prêt — Prêt l'archive automatiquement.
+                    </span>
+                  )}
                 </div>
               </div>
               <div className="sav-schema-tasks-row">
@@ -1991,10 +2137,10 @@ export default function App() {
                       placeholder="Préciser l'intervention imprimante"
                     />
                   )}
-                  {current.service === "Appeler le client" && (
+                  {(current.service === "Appeler le client" || current.service === "Sur site") && (
                     <div className="sav-appel-datetime">
                       <label style={{ display: "block", fontSize: 11.5, color: "var(--text-muted)", marginBottom: 6 }}>
-                        Appeler le client — date et heure prévues
+                        {current.service === "Sur site" ? "Sur site" : "Appeler le client"} — date et heure prévues
                       </label>
                       <div style={{ display: "flex", gap: 8 }}>
                         <input
@@ -2010,6 +2156,45 @@ export default function App() {
                           style={{ flex: 1 }}
                         />
                       </div>
+                      {current.service === "Sur site" && (
+                        <div className="sav-field" style={{ marginTop: 10, position: "relative" }}>
+                          <label style={{ display: "block", fontSize: 11.5, color: "var(--text-muted)", marginBottom: 6 }}>
+                            Adresse <span style={{ color: "var(--red)" }}>*</span>
+                          </label>
+                          <input
+                            value={current.adresse}
+                            onChange={(e) => update({ adresse: e.target.value })}
+                            onBlur={() => setTimeout(() => setAdresseTouched(true), 150)}
+                            placeholder="Numéro, rue, ville..."
+                            style={adresseInvalid ? { borderColor: "var(--red)" } : undefined}
+                          />
+                          {adresseInvalid && (
+                            <span style={{ display: "block", marginTop: 4, fontSize: 11, color: "var(--red)" }}>
+                              L'adresse est obligatoire.
+                            </span>
+                          )}
+                          {adresseSuggestions.length > 0 && (
+                            <div className="sav-adresse-suggestions">
+                              {adresseSuggestions.map((f) => (
+                                <button
+                                  type="button"
+                                  key={f.properties.id}
+                                  className="sav-adresse-suggestion"
+                                  onClick={() => {
+                                    update({ adresse: f.properties.label });
+                                    setAdresseSuggestions([]);
+                                  }}
+                                >
+                                  {f.properties.label}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <span style={{ display: "block", marginTop: 4, fontSize: 10.5, color: "var(--text-muted)" }}>
+                            Suggestions Base Adresse Nationale (IGN) — vous pouvez aussi continuer à taper librement.
+                          </span>
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>
@@ -2297,8 +2482,8 @@ export default function App() {
               {current.id &&
                 isAndroidDevice() &&
                 SMS_TEMPLATE_KEYS_BY_STATUS[current.statut] &&
-                current.telephone &&
-                current.telephone.trim() && (
+                ((current.telephone && current.telephone.trim()) ||
+                  (current.service === "Sur site" && current.statut === "En cours")) && (
                   <button className="sav-btn" onClick={openSmsModal} title="Ouvre l'application SMS avec le message prérempli">
                     <MessageSquare size={15} /> SMS
                   </button>
