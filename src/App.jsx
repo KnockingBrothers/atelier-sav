@@ -164,6 +164,7 @@ const SMS_TEMPLATE_KEYS_BY_STATUS = {
   // rendu du modal, indépendamment du statut. Pour une fiche "Sur
   // site", "Récap Sur site" s'ajoute aussi ici (voir plus bas).
   "En cours": ["custom"],
+  "Prêt": ["custom"],
 };
 
 function getSmsTemplatesForStatus(statut, service) {
@@ -457,6 +458,13 @@ async function loadCounter() {
   } catch {
     return 0;
   }
+}
+
+// Arrondit à 2 décimales en évitant les imprécisions classiques de
+// l'arithmétique flottante en JavaScript (ex. 79.90 + 39.90 donnerait
+// sinon 119.80000000000001 au lieu de 119.8).
+function roundMoney(n) {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
 }
 
 function formatDate(ts) {
@@ -1387,7 +1395,7 @@ export default function App() {
       // (ligne 1 uniquement, les autres lignes n'en ont pas).
       const sumTarifPieces = pieces.reduce((acc, p) => acc + (Number(p.tarifPiece) || 0), 0);
       const mo1 = Number(pieces[0]?.tarifMo) || 0;
-      if (pieces[0]) pieces[0] = { ...pieces[0], total: sumTarifPieces + mo1 };
+      if (pieces[0]) pieces[0] = { ...pieces[0], total: roundMoney(sumTarifPieces + mo1) };
       return { ...c, pieces };
     });
   };
@@ -1396,7 +1404,7 @@ export default function App() {
       const pieces = (c.pieces || []).filter((_, i) => i !== idx);
       const sumTarifPieces = pieces.reduce((acc, p) => acc + (Number(p.tarifPiece) || 0), 0);
       const mo1 = Number(pieces[0]?.tarifMo) || 0;
-      if (pieces[0]) pieces[0] = { ...pieces[0], total: sumTarifPieces + mo1 };
+      if (pieces[0]) pieces[0] = { ...pieces[0], total: roundMoney(sumTarifPieces + mo1) };
       return { ...c, pieces };
     });
   };
@@ -2562,7 +2570,7 @@ export default function App() {
             {smsStep === "templates" && (
               <>
                 <h3 className="sav-sms-title">Choisir un message</h3>
-                {(current.service === "Appeler le client" || current.statut === "En cours") && (
+                {(current.service === "Appeler le client" || current.statut === "En cours" || current.statut === "Prêt") && (
                   <button className="sav-sms-item sav-sms-call-item" onClick={callClientNow}>
                     📞 Appel Client
                   </button>
