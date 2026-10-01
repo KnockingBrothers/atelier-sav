@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, AlertCircle, Loader2, Tag, ArchiveRestore, Archive, MessageSquare } from "lucide-react";
+import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, AlertCircle, Loader2, Tag, ArchiveRestore, Archive, MessageSquare, ChevronDown } from "lucide-react";
 // jsPDF n'est plus importé ici en statique : il est chargé à la demande
 // (voir generateTicketPDF) pour éviter d'alourdir le chargement initial
 // de l'application avec une librairie utilisée seulement à l'impression.
@@ -35,12 +35,22 @@ const STATUTS = ["Reçu", "En cours", "Attente retour client", "Attente pièces"
 const STATUT_COLOR = {
   "Reçu": "var(--text-muted)",
   "En cours": "var(--amber)",
+  "Prévu": "var(--amber)",
   "Attente retour client": "var(--red)",
   "Attente pièces": "var(--red)",
   "Prêt": "var(--teal)",
   "Appel/SMS": "#C5F527",
   "Restitué": "var(--teal)",
 };
+
+// Le statut "Prêt" s'affiche "Effectué" pour une fiche "Sur site"
+// (mêmes fonctions exactement : archivage automatique, etc.) — c'est
+// uniquement l'intitulé qui change selon le service, jamais la valeur
+// stockée.
+function statutLabel(statut, service) {
+  if (statut === "Prêt" && service === "Sur site") return "Effectué";
+  return statut;
+}
 
 const SERVICE_COLOR = {
   "Informatique": "royalblue",
@@ -68,7 +78,7 @@ function matchesService(ticket, service) {
 }
 
 // Statuts autorisés pour une fiche "Sur site" : uniquement ces trois-là.
-const SUR_SITE_STATUTS = ["Reçu", "En cours", "Prêt"];
+const SUR_SITE_STATUTS = ["Reçu", "Prévu", "En cours", "Prêt"];
 
 // ── Fonctionnalité SMS (minimaliste, Android + Google Messages uniquement) ──
 // Atelier SAV ne fait que préparer le message et ouvrir l'application SMS
@@ -868,6 +878,8 @@ export default function App() {
   const [current, setCurrent] = useState(null);
   const [search, setSearch] = useState("");
   const [statutFilter, setStatutFilter] = useState("Toutes");
+  const [collapsedMonths, setCollapsedMonths] = useState({});
+  const [collapsedDays, setCollapsedDays] = useState({});
   const [confirmDelete, setConfirmDelete] = useState(null);
   const [saving, setSaving] = useState(false);
   const [nomTouched, setNomTouched] = useState(false);
@@ -875,6 +887,10 @@ export default function App() {
   const [serviceTouched, setServiceTouched] = useState(false);
   const [adresseTouched, setAdresseTouched] = useState(false);
   const [adresseSuggestions, setAdresseSuggestions] = useState([]);
+  // Vrai uniquement quand l'utilisateur tape réellement dans le champ
+  // Adresse — évite de rouvrir les suggestions juste parce qu'on ouvre
+  // une fiche qui a déjà une adresse enregistrée.
+  const adresseEditedRef = useRef(false);
   const [lastAutoSave, setLastAutoSave] = useState(null);
   const [autoSaving, setAutoSaving] = useState(false);
   const [printMode, setPrintMode] = useState("ticket");
@@ -1140,6 +1156,7 @@ export default function App() {
     setServiceTouched(false);
     setAdresseTouched(false);
     setAdresseSuggestions([]);
+    adresseEditedRef.current = false;
     setLastAutoSave(null);
     setView("edit");
   }, []);
@@ -1151,6 +1168,7 @@ export default function App() {
     setServiceTouched(false);
     setAdresseTouched(false);
     setAdresseSuggestions([]);
+    adresseEditedRef.current = false;
     setLastAutoSave(null);
     setView("edit");
   };
@@ -1163,6 +1181,7 @@ export default function App() {
     setServiceTouched(false);
     setAdresseTouched(false);
     setAdresseSuggestions([]);
+    adresseEditedRef.current = false;
     setLastAutoSave(null);
   };
 
@@ -1268,7 +1287,7 @@ export default function App() {
   // français, api-adresse.data.gouv.fr — publique, sans clé). Propose des
   // suggestions mais n'empêche jamais de continuer à taper librement.
   useEffect(() => {
-    if (view !== "edit" || !current || current.service !== "Sur site") {
+    if (view !== "edit" || !current || current.service !== "Sur site" || !adresseEditedRef.current) {
       setAdresseSuggestions([]);
       return;
     }
@@ -1511,6 +1530,19 @@ export default function App() {
     setSmsModalOpen(false);
   };
 
+  // Ligne compacte utilisée dans Archivées/Non réclamé à la place de la
+  // carte complète — juste de quoi identifier et rouvrir la fiche.
+  const renderCompactRow = (t) => (
+    <div key={t.id} className="sav-compact-row" onClick={() => openEdit(t)}>
+      <div className="sav-compact-top">
+        <span className="sav-compact-num sav-mono">{t.numero}</span>
+        <span className="sav-compact-date">{formatDate(t.createdAt)}</span>
+      </div>
+      <div className="sav-compact-nom">{t.nom || "Sans nom"}</div>
+      <div className="sav-compact-tel sav-mono">{t.telephone || "—"}</div>
+    </div>
+  );
+
   const renderCard = (t) => (
     <div key={t.id} className="sav-card" onClick={() => openEdit(t)}>
       <div className="notch" />
@@ -1600,7 +1632,7 @@ export default function App() {
             color: STATUT_COLOR[t.statut] || "var(--text-muted)",
           }}
         >
-          {t.statut}
+          {statutLabel(t.statut, t.service)}
         </span>
         <span className="date">{formatDate(t.createdAt)}</span>
       </div>
@@ -1643,8 +1675,21 @@ export default function App() {
         .sav-archive-hint { padding:8px 24px; font-size:11.5px; color:var(--text-muted); background:var(--graphite-900); border-bottom:1px solid var(--line); }
         .sav-archive-month { margin-bottom:22px; }
         .sav-archive-month-title { font-family:'Oswald',sans-serif; text-transform:uppercase; letter-spacing:0.04em; font-size:14px; color:var(--amber); margin:0 0 10px; padding-bottom:6px; border-bottom:1px solid var(--line); }
+        .sav-archive-month-toggle { display:flex; align-items:center; gap:8px; width:100%; background:none; border:none; border-bottom:1px solid var(--line); cursor:pointer; padding:0 0 10px; text-align:left; }
+        .sav-archive-chevron { transition:transform 0.15s ease; flex-shrink:0; }
+        .sav-archive-chevron.collapsed { transform:rotate(-90deg); }
+        .sav-archive-month-count { margin-left:auto; color:var(--text-muted); font-family:'IBM Plex Sans',sans-serif; text-transform:none; letter-spacing:0; font-size:12px; font-weight:400; }
         .sav-archive-day { margin-bottom:16px; }
         .sav-archive-day-title { font-size:12px; color:var(--text-muted); margin-bottom:8px; font-weight:500; }
+        .sav-archive-day-toggle { display:flex; align-items:center; gap:7px; width:100%; background:none; border:none; cursor:pointer; padding:0; text-align:left; }
+        .sav-compact-list { display:grid; grid-template-columns:repeat(auto-fill,minmax(200px,1fr)); gap:8px; }
+        .sav-compact-row { display:flex; flex-direction:column; gap:3px; padding:9px 11px; background:var(--graphite-900); border:1px solid var(--line); border-radius:7px; cursor:pointer; font-size:12.5px; }
+        .sav-compact-row:hover { background:var(--graphite-800); border-color:var(--amber); }
+        .sav-compact-top { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+        .sav-compact-num { color:var(--text-muted); font-size:11px; }
+        .sav-compact-date { color:var(--text-muted); font-size:11px; }
+        .sav-compact-nom { font-weight:600; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+        .sav-compact-tel { color:var(--text-muted); font-size:11.5px; }
         .sav-tab { padding:7px 12px; border-radius:6px; font-size:12px; font-weight:500; cursor:pointer; border:1px solid transparent; color:var(--text-muted); white-space:nowrap; }
         .sav-tab.active { background:var(--graphite-800); border-color:var(--line); color:var(--text); }
         .sav-tab .n { opacity:0.6; margin-left:4px; }
@@ -1848,19 +1893,61 @@ export default function App() {
               </div>
             ) : (
               <div className="sav-archive-groups">
-                {dateGroups.map((month) => (
-                  <div key={month.key} className="sav-archive-month">
-                    <h4 className="sav-archive-month-title">{month.label}</h4>
-                    {month.days.map((day) => (
-                      <div key={day.key} className="sav-archive-day">
-                        <div className="sav-archive-day-title">{day.label}</div>
-                        <div className="sav-grid">
-                          {day.tickets.map((t) => renderCard(t))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                ))}
+                {dateGroups.map((month, idx) => {
+                  const isCompact = statutFilter === "Archivées" || statutFilter === "Non réclamé";
+                  const count = month.days.reduce((acc, d) => acc + d.tickets.length, 0);
+                  const isCollapsed = isCompact && (collapsedMonths[month.key] !== undefined ? collapsedMonths[month.key] : idx !== 0);
+                  return (
+                    <div key={month.key} className="sav-archive-month">
+                      {isCompact ? (
+                        <button
+                          type="button"
+                          className="sav-archive-month-title sav-archive-month-toggle"
+                          onClick={() => setCollapsedMonths((prev) => ({ ...prev, [month.key]: !isCollapsed }))}
+                        >
+                          <ChevronDown size={14} className={`sav-archive-chevron ${isCollapsed ? "collapsed" : ""}`} />
+                          {month.label}
+                          <span className="sav-archive-month-count">({count} fiche{count > 1 ? "s" : ""})</span>
+                        </button>
+                      ) : (
+                        <h4 className="sav-archive-month-title">{month.label}</h4>
+                      )}
+                      {!isCollapsed &&
+                        month.days.map((day, dayIdx) => {
+                          const dayCollapsed =
+                            isCompact && (collapsedDays[day.key] !== undefined ? collapsedDays[day.key] : dayIdx !== 0);
+                          return (
+                            <div key={day.key} className="sav-archive-day">
+                              {isCompact ? (
+                                <button
+                                  type="button"
+                                  className="sav-archive-day-title sav-archive-day-toggle"
+                                  onClick={() => setCollapsedDays((prev) => ({ ...prev, [day.key]: !dayCollapsed }))}
+                                >
+                                  <ChevronDown size={12} className={`sav-archive-chevron ${dayCollapsed ? "collapsed" : ""}`} />
+                                  {day.label}
+                                  <span className="sav-archive-month-count">({day.tickets.length} fiche{day.tickets.length > 1 ? "s" : ""})</span>
+                                </button>
+                              ) : (
+                                <div className="sav-archive-day-title">{day.label}</div>
+                              )}
+                              {!dayCollapsed && (
+                                isCompact ? (
+                                  <div className="sav-compact-list">
+                                    {day.tickets.map((t) => renderCompactRow(t))}
+                                  </div>
+                                ) : (
+                                  <div className="sav-grid">
+                                    {day.tickets.map((t) => renderCard(t))}
+                                  </div>
+                                )
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -2055,6 +2142,7 @@ export default function App() {
                     }}
                   >
                     <option value="Reçu">Reçu</option>
+                    {current.service === "Sur site" && <option value="Prévu">Prévu</option>}
                     <option value="En cours">En cours</option>
                     {current.service !== "Sur site" && (
                       <>
@@ -2063,7 +2151,7 @@ export default function App() {
                         <option value="Attente pièces">Attente pièces</option>
                       </>
                     )}
-                    <option value="Prêt">Prêt</option>
+                    <option value="Prêt">{current.service === "Sur site" ? "Effectué" : "Prêt"}</option>
                     {current.service !== "Sur site" && (
                       <>
                         <option value="Appel/SMS">Appel/SMS</option>
@@ -2073,7 +2161,7 @@ export default function App() {
                   </select>
                   {current.service === "Sur site" && (
                     <span style={{ display: "block", marginTop: 4, fontSize: 11, color: "var(--text-muted)" }}>
-                      Une fiche "Sur site" n'a que les statuts Reçu, En cours et Prêt — Prêt l'archive automatiquement.
+                      Une fiche "Sur site" n'a que les statuts Reçu, Prévu, En cours et Effectué — Effectué l'archive automatiquement.
                     </span>
                   )}
                 </div>
@@ -2171,7 +2259,10 @@ export default function App() {
                           </label>
                           <input
                             value={current.adresse}
-                            onChange={(e) => update({ adresse: e.target.value })}
+                            onChange={(e) => {
+                              adresseEditedRef.current = true;
+                              update({ adresse: e.target.value });
+                            }}
                             onBlur={() => setTimeout(() => setAdresseTouched(true), 150)}
                             placeholder="Numéro, rue, ville..."
                             style={adresseInvalid ? { borderColor: "var(--red)" } : undefined}
@@ -2191,6 +2282,7 @@ export default function App() {
                                   onClick={() => {
                                     update({ adresse: f.properties.label });
                                     setAdresseSuggestions([]);
+                                    adresseEditedRef.current = false;
                                   }}
                                 >
                                   {f.properties.label}
