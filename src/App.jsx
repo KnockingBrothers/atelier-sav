@@ -165,7 +165,7 @@ const SMS_TEMPLATES = [
 // le Service de la fiche est "Appeler le client", quel que soit le statut.
 const SMS_TEMPLATE_KEYS_BY_STATUS = {
   "Appel/SMS": ["pret", "pieces", "accord", "devis", "rappel", "irreparable", "refus", "custom"],
-  "Attente retour client": ["accord", "devis", "custom"],
+  "Attente retour client": ["accord", "devis", "irreparable", "custom"],
   "Attente pièces": ["pieces", "custom"],
   // "En cours" : bouton SMS visible, mais seule la base "Message
   // personnalisé" est proposée — Mess.Abs. s'ajoute automatiquement
@@ -174,7 +174,7 @@ const SMS_TEMPLATE_KEYS_BY_STATUS = {
   // rendu du modal, indépendamment du statut. Pour une fiche "Sur
   // site", "Récap Sur site" s'ajoute aussi ici (voir plus bas).
   "En cours": ["custom"],
-  "Prêt": ["custom"],
+  "Prêt": ["pret", "custom"],
 };
 
 function getSmsTemplatesForStatus(statut, service) {
@@ -1517,6 +1517,14 @@ export default function App() {
     // sans destinataire pré-rempli, à choisir soi-même.
     openSms(key === "surSiteRecap" ? "" : current.telephone, message);
     setSmsModalOpen(false);
+    // Choisir "Appareil prêt" alors que la fiche est au statut "Prêt" la
+    // fait automatiquement basculer en "Appel/SMS" (et enregistre ce
+    // changement tout de suite, sans attendre un clic sur Enregistrer).
+    if (key === "pret" && current.statut === "Prêt") {
+      const updated = { ...current, statut: "Appel/SMS" };
+      update({ statut: "Appel/SMS" });
+      persistTicket(updated).catch(() => {});
+    }
   };
 
   const callClientNow = () => {
@@ -1896,14 +1904,18 @@ export default function App() {
                 {dateGroups.map((month, idx) => {
                   const isCompact = statutFilter === "Archivées" || statutFilter === "Non réclamé";
                   const count = month.days.reduce((acc, d) => acc + d.tickets.length, 0);
-                  const isCollapsed = isCompact && (collapsedMonths[month.key] !== undefined ? collapsedMonths[month.key] : idx !== 0);
+                  // Les clés d'état incluent l'onglet (statutFilter) pour que
+                  // replier/déplier un mois dans "Archivées" n'affecte pas
+                  // "Non réclamé", même si le même mois existe dans les deux.
+                  const monthStateKey = `${statutFilter}:${month.key}`;
+                  const isCollapsed = isCompact && (collapsedMonths[monthStateKey] !== undefined ? collapsedMonths[monthStateKey] : true);
                   return (
                     <div key={month.key} className="sav-archive-month">
                       {isCompact ? (
                         <button
                           type="button"
                           className="sav-archive-month-title sav-archive-month-toggle"
-                          onClick={() => setCollapsedMonths((prev) => ({ ...prev, [month.key]: !isCollapsed }))}
+                          onClick={() => setCollapsedMonths((prev) => ({ ...prev, [monthStateKey]: !isCollapsed }))}
                         >
                           <ChevronDown size={14} className={`sav-archive-chevron ${isCollapsed ? "collapsed" : ""}`} />
                           {month.label}
@@ -1914,15 +1926,16 @@ export default function App() {
                       )}
                       {!isCollapsed &&
                         month.days.map((day, dayIdx) => {
+                          const dayStateKey = `${statutFilter}:${day.key}`;
                           const dayCollapsed =
-                            isCompact && (collapsedDays[day.key] !== undefined ? collapsedDays[day.key] : dayIdx !== 0);
+                            isCompact && (collapsedDays[dayStateKey] !== undefined ? collapsedDays[dayStateKey] : true);
                           return (
                             <div key={day.key} className="sav-archive-day">
                               {isCompact ? (
                                 <button
                                   type="button"
                                   className="sav-archive-day-title sav-archive-day-toggle"
-                                  onClick={() => setCollapsedDays((prev) => ({ ...prev, [day.key]: !dayCollapsed }))}
+                                  onClick={() => setCollapsedDays((prev) => ({ ...prev, [dayStateKey]: !dayCollapsed }))}
                                 >
                                   <ChevronDown size={12} className={`sav-archive-chevron ${dayCollapsed ? "collapsed" : ""}`} />
                                   {day.label}
