@@ -1,23 +1,62 @@
-# Atelier — Prise en charge
+# Atelier SAV — Prise en charge
 
 > **Il n'existait pas de logiciel qui collait à mon atelier.**
 > **Alors je l'ai écrit.**
 > **Le SAV, sans le papier qui se perd.**
 
-Atelier SAV remplace le formulaire papier de prise en charge par une application de gestion des fiches SAV (client, appareil, check-up, tarification) partagée entre plusieurs postes : toutes les fiches sont centralisées sur le serveur et visibles en temps réel depuis tout le réseau, sans dépendre d'un logiciel généraliste mal adapté à un atelier de réparation informatique et téléphonie.
+![Licence](https://img.shields.io/badge/licence-AGPL%20v3-blue)
+![Version](https://img.shields.io/badge/version-V260610-green)
+![Node](https://img.shields.io/badge/node-%E2%89%A5%2018-339933)
+![Base](https://img.shields.io/badge/base-SQLite-003B57)
 
-**Licence :** [AGPL v3](LICENSE) — voir la section [Licence](#licence) plus bas.
-**Version :** V262409
+Atelier SAV remplace le formulaire papier de prise en charge par une application web de gestion des fiches SAV (client, appareil, check-up, interventions, tarification), partagée entre plusieurs postes : toutes les fiches sont centralisées sur un serveur local et visibles en temps réel depuis tout le réseau de l'atelier, sans dépendre d'un logiciel généraliste mal adapté à la réparation informatique et téléphonie.
+
+Il a été écrit par un technicien de maintenance informatique pour son propre atelier, puis publié pour que d'autres puissent s'en servir ou l'adapter.
+
+**Licence :** [AGPL v3](LICENSE) — voir la section [Licence](#licence).
+**Version :** V260610 — le format est `VYYddMM` : année sur 2 chiffres, jour, mois. Exemple : le 6 octobre 2026 donne `V260610`.
 
 ## Sommaire
 
+- [Fonctionnalités](#fonctionnalités)
+- [Pile technique](#pile-technique)
 - [Installation et déploiement](#installation-et-déploiement)
 - [Fonctionnement de l'application](#fonctionnement-de-lapplication)
 - [Fonctionnalité SMS](#fonctionnalité-sms)
+- [Impression directe POS80](#impression-directe-pos80)
 - [Application Android](#atelier-sav--application-android)
 - [Sauvegarde et restauration de la base de données](#sauvegarde-et-restauration-de-la-base-de-données)
+- [Sécurité et bonnes pratiques](#sécurité-et-bonnes-pratiques)
+- [Dépannage](#dépannage)
 - [Structure du projet](#structure-du-projet)
+- [Contribuer](#contribuer)
 - [Licence](#licence)
+
+## Fonctionnalités
+
+- **Fiche de prise en charge complète** : client (nom, téléphone), appareil, mot de passe, schéma de déverrouillage, accessoires fournis, état général, panne constatée, diagnostic et intervention.
+- **Check-up** à cocher (nettoyage, antivirus, SMART, Windows, Winget, clone, connecteur, charge, écran, haut-parleur, micros, caméras…) et **interventions à prévoir** (« - » / « à faire » / « OK »).
+- **Services** : Informatique, Téléphonie, Imprimante, Tablette, ainsi que **Appeler le client** et **Sur site** pour planifier un rappel ou un déplacement.
+- **7 statuts** de suivi (Reçu, En cours, Attente retour client, Attente pièces, Prêt, Appel/SMS, Restitué), avec des couleurs distinctes.
+- **Tarification** : jusqu'à 10 lignes de pièces détachées, main d'œuvre, total calculé automatiquement, prise en charge à déduire.
+- **Numéro de fiche et code-barres EAN-14 (ITF-14)** générés automatiquement ; la fiche s'ouvre en scannant le code avec une douchette USB ou avec la caméra de l'application Android.
+- **Impression** de la fiche, d'étiquettes (POS80, 50×30, 40×30, 62×29 Brother DK, 57×32 ou format personnalisé) et **PDF au format B5**.
+- **Impression directe POS80** (optionnelle) : étiquette envoyée par le serveur à une imprimante thermique 80 mm en réseau, avec coupe automatique — voir [Impression directe POS80](#impression-directe-pos80).
+- **SMS préparés** pour le client depuis un appareil Android, sans jamais envoi automatique.
+- **Classement par mois et par jour**, onglets par statut et par service, recherche, archivage automatique et fiches « Non réclamé ».
+- **Sauvegarde automatique** de la fiche en cours d'édition, et scripts de sauvegarde/restauration de la base.
+- **Application Android** (WebView) avec scanner de codes-barres.
+
+## Pile technique
+
+| Élément | Technologie |
+|---|---|
+| Interface | React 18, Vite 5, icônes lucide-react |
+| Serveur | Node.js 18+, Express 4 |
+| Base de données | SQLite (`better-sqlite3`), un fichier unique `server/atelier-sav.db` |
+| PDF | jsPDF (chargé à la demande) |
+| Exécution permanente | pm2 |
+| Cible | Ubuntu Server ou Raspberry Pi OS, réseau local |
 
 ## Installation et déploiement
 
@@ -116,7 +155,7 @@ Les fiches sont stockées dans une base **SQLite** côté serveur (`server/ateli
 Une fiche passe par plusieurs statuts (Reçu, En cours, Attente retour client, Attente pièces, Prêt, Appel/SMS, Restitué). Deux mécanismes automatiques gèrent ensuite son cycle de vie :
 
 - **Archivage** : une fiche au statut **Restitué** depuis plus de **24h** est archivée automatiquement (ou manuellement à tout moment via l'icône dédiée sur sa carte). Les fiches archivées sont classées par mois puis par jour dans l'onglet **Archivées**, et supprimées **définitivement après 367 jours** d'archivage.
-- **Non réclamé** : une fiche au statut **Appel/SMS** depuis plus de **15 jours** bascule automatiquement dans l'onglet **Non réclamé** (juste après Archivées) et disparaît des onglets normaux. Même classement par mois/jour, et même suppression définitive après **367 jours**. Si le statut de la fiche change entre-temps, elle redevient visible normalement et le délai repart de zéro s'il repasse un jour en Appel/SMS. Si une fiche Non réclamé passe directement au statut Restitué, elle est archivée immédiatement (sans attendre les 24h habituelles).
+- **Non réclamé** : une fiche au statut **Appel/SMS** ou **Attente retour client** depuis plus de **15 jours** bascule automatiquement dans l'onglet **Non réclamé** (juste après Archivées) et disparaît des onglets normaux. Même classement par mois/jour, et même suppression définitive après **367 jours**. Si le statut de la fiche change entre-temps, elle redevient visible normalement et le délai repart de zéro si elle repasse un jour dans l'un de ces deux statuts. Si une fiche Non réclamé passe directement au statut Restitué, elle est archivée immédiatement (sans attendre les 24h habituelles).
 
 Ces deux suppressions définitives sont **irréversibles**, contrairement à l'archivage ou au passage en Non réclamé, qui peuvent toujours être annulés en changeant le statut de la fiche.
 
@@ -157,6 +196,17 @@ Selon le statut de la fiche, un choix de messages prédéfinis s'affiche :
 | **Attente pièces** | En attente de pièces, Message personnalisé |
 | **En cours** | 📞 Appel Client (toujours visible) et Message personnalisé — Mess.Abs. s'ajoute en plus si le Service de la fiche est "Appeler le client" (voir plus bas) |
 
+Le mot « appareil » dans les messages est **remplacé automatiquement selon le Service de la fiche** (avec accord au féminin : « prête », « réparée », « la récupérer ») :
+
+| Service | Terme employé |
+|---|---|
+| Informatique | ordinateur |
+| Téléphonie | téléphone |
+| Imprimante | imprimante |
+| Tablette | tablette |
+
+Pour une fiche « Appeler le client », c'est le département choisi qui compte. Dans tous les autres cas (Service non renseigné…), le terme reste « appareil ». Une fiche « Sur site » n'utilise pas ces messages (voir plus bas).
+
 Chaque message est rédigé sur plusieurs lignes (retours à la ligne inclus dans le SMS), avec le nom et le téléphone du magasin insérés automatiquement (configurés une seule fois au premier envoi, modifiables ensuite depuis la fenêtre SMS).
 
 Le message **"Devis / accord nécessaire"** est **construit dynamiquement** à partir des lignes de pièces détachées (voir plus haut) : seules les lignes dont le nom de la pièce est rempli apparaissent, chacune avec son tarif ; la Main d'œuvre n'apparaît que si elle est supérieure à 0 ; le Total ne s'affiche que s'il y a au moins une ligne de détail. Si aucune ligne n'est remplie, le SMS reste un simple message d'accord, sans détail de prix.
@@ -184,6 +234,42 @@ Sur le même principe qu'« Appeler le client » : l'option **Sur site** (en bla
 Une fiche "Sur site" n'a que **trois statuts possibles** : Reçu, En cours, Prêt. Particularité : passer au statut **Prêt archive automatiquement la fiche**, sans attendre le délai habituel de 24h après Restitué.
 
 Dans le statut **En cours**, le bouton SMS est disponible même sans numéro de téléphone renseigné, avec un message supplémentaire **"Récap Sur site"** : contrairement aux autres messages, celui-ci s'ouvre **sans destinataire pré-rempli** (vous choisissez vous-même à qui l'envoyer) et ne contient que Nom, Téléphone, date, heure et adresse — rien d'autre, ce n'est pas un message destiné au client.
+
+## Impression directe POS80
+
+En complément de l'impression par le navigateur, Atelier SAV peut envoyer l'étiquette **directement à une imprimante thermique 80 mm en réseau** (testé avec une Epson TM-T20III), coupe du papier comprise. Cette fonction est **facultative** : tant qu'aucune adresse IP n'est renseignée, rien ne change.
+
+### Activer la fonction
+
+1. Branchez l'imprimante au réseau (prise RJ45) et donnez-lui une adresse IP fixe (réservation DHCP dans la box, ou outil EpsonNet Config). Le ticket de test (éteindre l'imprimante, maintenir FEED en la rallumant) indique son adresse actuelle.
+2. Ouvrez la fenêtre **Informations du magasin** : bouton **Magasin** dans la barre du bas d'une fiche (sur PC), ou bouton SMS puis « Modifier les informations du magasin » (sur Android).
+3. Renseignez le champ **POS80 :** avec l'adresse IP, par exemple `192.168.1.51`, puis Enregistrer. Seules les adresses du réseau local sont acceptées (192.168.x.x, 10.x.x.x, 172.16 à 31.x.x). Pour désactiver la fonction, videz le champ.
+
+### Utilisation
+
+Deux boutons apparaissent sur la fiche, uniquement si l'IP est renseignée :
+
+- **POS80** dans la barre du bas, à côté de « Étiquette » ;
+- une **icône d'imprimante** en haut à droite, entre le code-barres et l'icône d'enregistrement.
+
+Les deux font la même chose : la fiche est **enregistrée** (mêmes contrôles que « Enregistrer » : Nom, Téléphone et Service obligatoires), puis l'étiquette est imprimée, et **l'on reste sur la fiche**. Si l'imprimante est injoignable, la fiche est quand même enregistrée et un message l'indique.
+
+### Contenu de l'étiquette
+
+Numéro de fiche (en grand), date et heure, nom du client, modèle et Service, puis code-barres ITF-14 avec ses 14 chiffres. Le papier avance ensuite de **4 cm**, puis la **coupe partielle** est déclenchée (`1D 56 41 03`, qui avance elle-même jusqu'à la lame).
+
+### Fonctionnement technique
+
+Le navigateur ne peut pas ouvrir de connexion TCP : il appelle la route `POST /api/print` du serveur, qui construit les commandes **ESC/POS** (`server/escpos.js`) et les envoie à l'imprimante sur le **port TCP 9100**. Les accents sont encodés en CP858 (table 19 des Epson). La route refuse toute adresse qui n'est pas du réseau local.
+
+Réglages dans `server/escpos.js` : `FEED_BEFORE_CUT_DOTS` (avance avant coupe, 320 points = 4 cm à 203 dpi). Une imprimante autre qu'Epson peut demander un autre numéro de table de caractères ou une autre commande de coupe.
+
+Test sans l'application, depuis le Raspberry Pi :
+
+```bash
+printf 'Test Atelier SAV\n\n\n' | nc 192.168.1.51 9100
+printf '\x1d\x56\x41\x03' | nc 192.168.1.51 9100
+```
 
 ## Atelier SAV — Application Android
 
@@ -271,12 +357,44 @@ Une sauvegarde stockée sur le même disque que le serveur ne protège **pas** c
 
 Ouvrez les fichiers `backup.sh` et `restore.sh` pour lire le détail des étapes, à adapter avec l'adresse IP et le nom réel de votre partage.
 
+## Sécurité et bonnes pratiques
+
+- **Aucune authentification** : l'application n'a pas de compte ni de mot de passe. Quiconque peut joindre le serveur (`http://<ip>:3001`) voit et modifie toutes les fiches. Elle est conçue pour un **réseau local d'atelier de confiance**.
+- **Ne l'exposez pas directement sur Internet** (pas de redirection de port depuis la box). Pour un accès à distance, passez par un VPN.
+- **Connexion non chiffrée** (HTTP) par défaut. Pour du HTTPS, placez un reverse proxy (Caddy, nginx) devant le serveur.
+- **Données sensibles** : la base contient des noms, téléphones et mots de passe d'appareils de clients. Elle est exclue du dépôt par `.gitignore` — ne la publiez jamais, et protégez aussi les sauvegardes.
+- **Saisie d'adresse (service « Sur site »)** : les caractères tapés dans le champ Adresse sont envoyés par le navigateur à l'API publique Base Adresse Nationale (api-adresse.data.gouv.fr) pour proposer des suggestions. Aucune autre donnée de la fiche n'y est transmise.
+- **Route `/api/print`** : comme le reste de l'API, elle n'a pas d'authentification ; elle n'accepte que des adresses du réseau local et le port 9100.
+- **Nom et téléphone du magasin** ne sont jamais écrits dans le code : ils se règlent dans l'application et sont stockés dans la base.
+
+## Dépannage
+
+| Symptôme | Piste |
+|---|---|
+| `npm install` échoue sur `better-sqlite3` | Installez les outils de compilation : `sudo apt install -y build-essential python3` |
+| Page blanche ou ancienne version après mise à jour | Relancez `npm run build`, redémarrez avec `pm2 restart atelier-sav`, puis rechargez la page (Ctrl+F5) |
+| Impossible d'ouvrir l'application depuis un autre poste | Vérifiez l'IP du serveur, que le service tourne (`pm2 status`) et que le port est ouvert (`sudo ufw allow 3001`) |
+| Le bouton SMS n'apparaît pas | Il n'existe que sur Android, avec un statut compatible et un téléphone renseigné sur la fiche (voir [Fonctionnalité SMS](#fonctionnalité-sms)) |
+| `npm audit` signale encore quelques alertes | Les alertes restantes concernent des dépendances de développement ou des fonctions que l'application n'utilise pas. Ne lancez pas `npm audit fix --force` sans test : il impose des changements majeurs de versions |
+| Sauvegarde : `sqlite3: command not found` | `sudo apt install -y sqlite3` |
+
+## Contribuer
+
+Les retours et propositions sont les bienvenus via les **Issues** et **Pull Requests** du dépôt. Pour proposer une modification :
+
+1. Forkez le dépôt et créez une branche dédiée.
+2. Lancez l'application en [mode développement](#mode-développement) et testez votre changement.
+3. Décrivez clairement le besoin atelier que la modification couvre : le projet reste volontairement simple et orienté usage réel.
+4. Le code est sous AGPL v3 : toute contribution est publiée sous la même licence.
+
+Le gros de l'application tient dans un seul fichier, `src/App.jsx`.
+
 ## Structure du projet
 
 ```
 atelier-sav/
 ├── LICENSE                 texte complet de la licence AGPL v3
-├── VERSION                  identifiant de version courant, format VYYddMM (ex. V262409 = 24/09/2026)
+├── VERSION                  identifiant de version courant, format VYYddMM (ex. V260610 = 06/10/2026)
 ├── .gitignore              exclut node_modules/, dist/, server/*.db, sauvegardes
 ├── README.md
 ├── package.json
@@ -288,6 +406,7 @@ atelier-sav/
 ├── android/                 code source de l'application Android (WebView + scanner + pont natif)
 ├── server/
 │   ├── server.js             API Express + service de l'application construite
+│   ├── escpos.js             commandes ESC/POS de l'étiquette POS80 (impression directe)
 │   └── atelier-sav.db        base de données (créée automatiquement au premier lancement, jamais publiée)
 └── src/
     ├── main.jsx               point d'entrée

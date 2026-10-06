@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, AlertCircle, Loader2, Tag, ArchiveRestore, Archive, MessageSquare, ChevronDown } from "lucide-react";
+import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, AlertCircle, Loader2, Tag, ArchiveRestore, Archive, MessageSquare, ChevronDown, Settings } from "lucide-react";
 // jsPDF n'est plus importé ici en statique : il est chargé à la demande
 // (voir generateTicketPDF) pour éviter d'alourdir le chargement initial
 // de l'application avec une librairie utilisée seulement à l'impression.
@@ -93,6 +93,17 @@ function isAndroidDevice() {
   return typeof navigator !== "undefined" && /android/i.test(navigator.userAgent || "");
 }
 
+// Adresse IPv4 de l'imprimante POS80 (champ facultatif : vide = pas de
+// bouton POS80). Seules les adresses du réseau local sont acceptées, comme
+// côté serveur.
+function isValidPrinterIp(ip) {
+  const m = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec((ip || "").trim());
+  if (!m) return false;
+  const [a, b, c, d] = m.slice(1).map(Number);
+  if ([a, b, c, d].some((n) => n > 255)) return false;
+  return a === 10 || a === 127 || (a === 172 && b >= 16 && b <= 31) || (a === 192 && b === 168);
+}
+
 // Paliers proposés pour le délai de "Retour à l'accueil" automatique
 // (enregistrement + retour à la liste après inactivité sur une fiche) :
 // 0 = désactivé, puis 22, 42, 62, 82... par tranches de 20 secondes.
@@ -102,17 +113,17 @@ const SMS_TEMPLATES = [
   {
     key: "pret",
     label: "Appareil prêt",
-    text: "{companyName}\nBonjour, votre appareil est prêt et disponible.\nVous pouvez venir le récupérer aux horaires d'ouverture habituels.\nPour plus d'informations, contactez-nous au {companyPhone}.",
+    text: "{companyName}\nBonjour, votre {appareil} est prêt{e} et disponible.\nVous pouvez venir {le} récupérer aux horaires d'ouverture habituels.\nPour plus d'informations, contactez-nous au {companyPhone}.",
   },
   {
     key: "pieces",
     label: "En attente de pièces",
-    text: "{companyName}\nBonjour, petit contretemps : il nous manque des pièces pour votre appareil.\nNous vous informerons dès que l'intervention pourra reprendre.\nPour toute question : {companyPhone}.",
+    text: "{companyName}\nBonjour, petit contretemps : il nous manque des pièces pour votre {appareil}.\nNous vous informerons dès que l'intervention pourra reprendre.\nPour toute question : {companyPhone}.",
   },
   {
     key: "accord",
     label: "Besoin d'informations / accord client",
-    text: "Bonjour, nous avons besoin de vous contacter au sujet de votre appareil.\nMerci de nous appeler au {companyPhone} {companyName}.",
+    text: "Bonjour, nous avons besoin de vous contacter au sujet de votre {appareil}.\nMerci de nous appeler au {companyPhone} {companyName}.",
   },
   {
     key: "devis",
@@ -123,17 +134,17 @@ const SMS_TEMPLATES = [
   {
     key: "rappel",
     label: "Rappel de récupération",
-    text: "Bonjour, votre appareil est disponible en magasin et en attente de récupération.\nPour toute information : {companyPhone} {companyName}.",
+    text: "Bonjour, votre {appareil} est disponible en magasin et en attente de récupération.\nPour toute information : {companyPhone} {companyName}.",
   },
   {
     key: "irreparable",
     label: "Réparation impossible",
-    text: "{companyName}\nBonjour, après diagnostic, votre équipement ne peut malheureusement pas être réparé par nos services.\nContactez-nous au {companyPhone}.",
+    text: "{companyName}\nBonjour, après diagnostic, votre {appareil} ne peut malheureusement pas être réparé{e} par nos services.\nContactez-nous au {companyPhone}.",
   },
   {
     key: "refus",
     label: "Refus de réparation",
-    text: "Suite à votre refus de réparation, votre appareil reste disponible en magasin ;\npour toute information, contactez-nous au : {companyPhone} {companyName}.",
+    text: "Suite à votre refus de réparation, votre {appareil} reste disponible en magasin ;\npour toute information, contactez-nous au : {companyPhone} {companyName}.",
   },
   {
     key: "messAbs",
@@ -201,7 +212,26 @@ function getSmsTemplatesForStatus(statut, service) {
   return list;
 }
 
+// Terme employé dans les SMS à la place de "appareil", selon le Service de
+// la fiche (Informatique = ordinateur, Téléphonie = téléphone, Imprimante =
+// imprimante, Tablette = tablette). Pour "Appeler le client", on utilise le
+// service choisi dans la fiche ; pour "Sur site", Informatique = ordinateur.
+// Dans tous les autres cas : "appareil".
+function smsDeviceInfo(ticket) {
+  const NOUNS = {
+    Informatique: { nom: "ordinateur", fem: false },
+    Téléphonie: { nom: "téléphone", fem: false },
+    Imprimante: { nom: "imprimante", fem: true },
+    Tablette: { nom: "tablette", fem: true },
+  };
+  let svc = ticket && ticket.service;
+  if (svc === "Appeler le client") svc = ticket.appelDepartement;
+  else if (svc === "Sur site") svc = ticket.surSiteType === "Informatique" ? "Informatique" : "";
+  return NOUNS[svc] || { nom: "appareil", fem: false };
+}
+
 function buildSmsMessage(templateKey, customText, config, ticket) {
+  const { nom } = smsDeviceInfo(ticket);
   const companyName = (config.companyName || "").trim();
   const companyPhone = (config.companyPhone || "").trim();
   if (templateKey === "custom") {
@@ -222,9 +252,9 @@ function buildSmsMessage(templateKey, customText, config, ticket) {
     if (lines.length > 0) {
       const total = Number(pieces[0]?.total) || 0;
       lines.push(`Total : ${total} € TTC`);
-      return `Bonjour, voici le détail de la réparation de votre appareil :\n${lines.join("\n")}\nVotre accord requis avant intervention.\n${companyPhone} – ${companyName}`;
+      return `Bonjour, voici le détail de la réparation de votre ${nom} :\n${lines.join("\n")}\nVotre accord requis avant intervention.\n${companyPhone} – ${companyName}`;
     }
-    return `Bonjour, votre accord est nécessaire avant intervention sur votre appareil.\n${companyPhone} – ${companyName}`;
+    return `Bonjour, votre accord est nécessaire avant intervention sur votre ${nom}.\n${companyPhone} – ${companyName}`;
   }
   if (templateKey === "surSiteRecap") {
     // Récapitulatif interne pour l'intervention "Sur site" : uniquement
@@ -245,7 +275,13 @@ function buildSmsMessage(templateKey, customText, config, ticket) {
   }
   const tpl = SMS_TEMPLATES.find((t) => t.key === templateKey);
   if (!tpl) return "";
-  let text = tpl.text.replace(/\{companyPhone\}/g, companyPhone).replace(/\{companyName\}/g, companyName);
+  const fem = smsDeviceInfo(ticket).fem;
+  let text = tpl.text
+    .replace(/\{appareil\}/g, nom)
+    .replace(/\{e\}/g, fem ? "e" : "")
+    .replace(/\{le\}/g, fem ? "la" : "le")
+    .replace(/\{companyPhone\}/g, companyPhone)
+    .replace(/\{companyName\}/g, companyName);
   if (tpl.appelOnly) {
     let dateStr = "";
     let heureStr = "";
@@ -423,8 +459,10 @@ function blankTicket() {
     archived: false,
     archivedAt: null,
     appelSmsAt: null,
+    attenteRetourAt: null,
     nonReclame: false,
     nonReclameAt: null,
+    nonReclameStatut: null,
     reparationValideeParClient: false,
     nom: "",
     telephone: "",
@@ -459,7 +497,7 @@ function blankTicket() {
 
 const ARCHIVE_DELAY_MS = 24 * 60 * 60 * 1000; // 24h avant archivage automatique
 const DELETE_AFTER_MS = 367 * 24 * 60 * 60 * 1000; // 367 jours avant suppression définitive des archives / des non réclamés
-const NON_RECLAME_DELAY_MS = 15 * 24 * 60 * 60 * 1000; // 15 jours en "Appel/SMS" avant passage en "Non réclamé"
+const NON_RECLAME_DELAY_MS = 15 * 24 * 60 * 60 * 1000; // 15 jours en "Appel/SMS" ou "Attente retour client" avant passage en "Non réclamé"
 
 async function loadCounter() {
   try {
@@ -896,8 +934,11 @@ export default function App() {
   const [printMode, setPrintMode] = useState("ticket");
   const [labelPreset, setLabelPreset] = useState("pos80");
   const [labelSize, setLabelSize] = useState({ w: 80, h: 60 });
-  const [companyConfig, setCompanyConfig] = useState({ companyName: "", companyPhone: "", returnHomeSeconds: 0 });
-  const [companyFormDraft, setCompanyFormDraft] = useState({ companyName: "", companyPhone: "", returnHomeSeconds: 0 });
+  const [companyConfig, setCompanyConfig] = useState({ companyName: "", companyPhone: "", returnHomeSeconds: 0, posIp: "" });
+  const [companyFormDraft, setCompanyFormDraft] = useState({ companyName: "", companyPhone: "", returnHomeSeconds: 0, posIp: "" });
+  const [shopOnly, setShopOnly] = useState(false); // fenêtre ouverte depuis "Magasin" (pas depuis SMS)
+  const [posPrinting, setPosPrinting] = useState(false);
+  const [notice, setNotice] = useState("");
   const [smsModalOpen, setSmsModalOpen] = useState(false);
   const [smsStep, setSmsStep] = useState("templates");
   const [smsCustomText, setSmsCustomText] = useState("");
@@ -937,20 +978,25 @@ export default function App() {
       }
 
       // Passe automatiquement en "Non réclamé" les fiches au statut
-      // "Appel/SMS" depuis plus de 15 jours (non archivées, pas déjà
-      // marquées). Elles disparaissent alors des onglets normaux.
-      const toNonReclame = loaded.filter(
-        (t) =>
-          t.statut === "Appel/SMS" &&
-          !t.archived &&
-          !t.nonReclame &&
-          t.appelSmsAt &&
-          now - t.appelSmsAt >= NON_RECLAME_DELAY_MS
-      );
+      // "Appel/SMS" ou "Attente retour client" depuis plus de 15 jours
+      // (non archivées, pas déjà marquées). Elles disparaissent alors des
+      // onglets normaux. Pour les fiches "Attente retour client" créées
+      // avant cette règle (pas d'horodatage), on se base sur la date de
+      // dernière modification.
+      const toNonReclame = loaded.filter((t) => {
+        if (t.archived || t.nonReclame) return false;
+        if (t.statut === "Appel/SMS") return t.appelSmsAt && now - t.appelSmsAt >= NON_RECLAME_DELAY_MS;
+        if (t.statut === "Attente retour client") {
+          const since = t.attenteRetourAt || t.updatedAt || t.createdAt;
+          return since && now - since >= NON_RECLAME_DELAY_MS;
+        }
+        return false;
+      });
       if (toNonReclame.length > 0) {
         for (const t of toNonReclame) {
           t.nonReclame = true;
           t.nonReclameAt = now;
+          t.nonReclameStatut = t.statut;
           try {
             await window.storage.set(`sav:ticket:${t.id}`, JSON.stringify(t));
           } catch {}
@@ -1007,6 +1053,7 @@ export default function App() {
             companyName: parsed.companyName || "",
             companyPhone: parsed.companyPhone || "",
             returnHomeSeconds: Number(parsed.returnHomeSeconds) || 0,
+            posIp: parsed.posIp || "",
           });
         }
       } catch {}
@@ -1221,11 +1268,21 @@ export default function App() {
     } else {
       toSave.appelSmsAt = null;
     }
-    // Dès que le statut n'est plus "Appel/SMS", la fiche redevient
-    // visible normalement : on annule son statut "Non réclamé".
-    if (toSave.statut !== "Appel/SMS") {
+    // Même principe pour "Attente retour client" (15 jours avant passage
+    // automatique en "Non réclamé").
+    if (toSave.statut === "Attente retour client") {
+      if (!toSave.attenteRetourAt) toSave.attenteRetourAt = now;
+    } else {
+      toSave.attenteRetourAt = null;
+    }
+    // Dès que le statut change par rapport à celui qui a provoqué le
+    // passage en "Non réclamé" (Appel/SMS ou Attente retour client), la
+    // fiche redevient visible normalement : on annule son statut
+    // "Non réclamé". (Anciennes fiches sans mémo : Appel/SMS.)
+    if (toSave.nonReclame && toSave.statut !== (toSave.nonReclameStatut || "Appel/SMS")) {
       toSave.nonReclame = false;
       toSave.nonReclameAt = null;
+      toSave.nonReclameStatut = null;
     }
     // Particularité "Sur site" : le statut "Prêt" archive la fiche
     // immédiatement (appliqué après les règles ci-dessus pour ne pas être
@@ -1272,6 +1329,68 @@ export default function App() {
       setError("Échec de l'enregistrement. Réessayez.");
     }
     setSaving(false);
+  };
+
+  // Impression directe de l'étiquette sur l'imprimante POS80 (réseau) :
+  // enregistre d'abord la fiche (mêmes contrôles que "Enregistrer"), puis
+  // demande au serveur d'envoyer l'étiquette à l'imprimante. On reste sur
+  // la fiche. Si l'impression échoue, la fiche reste enregistrée.
+  const printPos80 = async () => {
+    if (!current || posPrinting || !companyConfig.posIp) return;
+    if (!current.nom.trim()) {
+      setNomTouched(true);
+      setError("Le nom du client est requis.");
+      return;
+    }
+    if (!current.telephone.trim()) {
+      setTelephoneTouched(true);
+      setError("Le téléphone du client est requis.");
+      return;
+    }
+    if (!current.service) {
+      setServiceTouched(true);
+      setError("Le service est requis.");
+      return;
+    }
+    setError("");
+    setNotice("");
+    setPosPrinting(true);
+    let saved;
+    try {
+      saved = await persistTicket(current);
+      setCurrent((prevCur) =>
+        prevCur && !prevCur.id ? { ...prevCur, id: saved.id, createdAt: saved.createdAt } : prevCur
+      );
+      setLastAutoSave(Date.now());
+    } catch {
+      setError("Échec de l'enregistrement. Réessayez.");
+      setPosPrinting(false);
+      return;
+    }
+    try {
+      const { code, date } = splitNumeroForLabel(saved.numero);
+      const res = await fetch("/api/print", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          ip: companyConfig.posIp,
+          label: {
+            code,
+            date,
+            nom: saved.nom,
+            modele: saved.marqueModele,
+            service: saved.service === "Appeler le client" ? saved.appelDepartement : saved.service,
+            ean14: saved.ean14,
+          },
+        }),
+      });
+      if (!res.ok) throw new Error("print_failed");
+      setNotice("Étiquette envoyée à l'imprimante POS80.");
+      setTimeout(() => setNotice(""), 5000);
+    } catch {
+      setError("Fiche enregistrée, mais l'impression POS80 a échoué : vérifiez que l'imprimante est allumée et connectée au réseau (IP " + companyConfig.posIp + ").");
+    }
+    setPosPrinting(false);
   };
 
   // Sauvegarde automatique silencieuse toutes les 20 secondes pendant
@@ -1487,7 +1606,17 @@ export default function App() {
   const openSmsModal = () => {
     setCompanyFormDraft(companyConfig);
     setSmsCustomText("");
+    setShopOnly(false);
     setSmsStep(companyConfig.companyName && companyConfig.companyPhone ? "templates" : "setup");
+    setSmsModalOpen(true);
+  };
+
+  // Ouvre la fenêtre des informations du magasin sans passer par le
+  // bouton SMS (réservé à Android) — utile sur PC pour régler l'IP POS80.
+  const openShopSettings = () => {
+    setCompanyFormDraft(companyConfig);
+    setShopOnly(true);
+    setSmsStep("setup");
     setSmsModalOpen(true);
   };
 
@@ -1496,12 +1625,19 @@ export default function App() {
       companyName: companyFormDraft.companyName.trim(),
       companyPhone: companyFormDraft.companyPhone.trim(),
       returnHomeSeconds: Number(companyFormDraft.returnHomeSeconds) || 0,
+      posIp: (companyFormDraft.posIp || "").trim(),
     };
     if (!cfg.companyName || !cfg.companyPhone) return;
+    if (cfg.posIp && !isValidPrinterIp(cfg.posIp)) return;
     try {
       await window.storage.set("sav:config", JSON.stringify(cfg));
       setCompanyConfig(cfg);
-      setSmsStep("templates");
+      if (shopOnly) {
+        setShopOnly(false);
+        setSmsModalOpen(false);
+      } else {
+        setSmsStep("templates");
+      }
     } catch {
       setError("Échec de l'enregistrement des informations du magasin. Réessayez.");
     }
@@ -1769,6 +1905,7 @@ export default function App() {
         .sav-ck-status { font-size:10.5px; font-weight:700; padding:3px 8px; border-radius:5px; min-width:34px; text-align:center; }
         .sav-actions-bar { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:16px 24px; border-top:1px solid var(--line); flex-wrap:wrap; }
         .sav-actions-left, .sav-actions-right { display:flex; gap:8px; flex-wrap:wrap; }
+        .sav-notice { display:flex; align-items:center; gap:8px; background:rgba(79,176,138,0.12); border:1px solid #4FB08A; color:#A9E0C6; padding:10px 14px; border-radius:8px; font-size:13px; margin:0 24px 12px; }
         .sav-error { display:flex; align-items:center; gap:8px; background:rgba(226,96,79,0.12); border:1px solid var(--red); color:#F5B8B0; padding:10px 14px; border-radius:8px; font-size:13px; margin:0 24px 12px; }
         .sav-confirm { position:fixed; inset:0; background:rgba(0,0,0,0.6); display:flex; align-items:center; justify-content:center; z-index:50; border-radius:14px; }
         .sav-confirm-box { background:var(--graphite-900); border:1px solid var(--line); border-radius:12px; padding:20px 22px; max-width:320px; }
@@ -1823,6 +1960,7 @@ export default function App() {
           {error}
         </div>
       )}
+      {notice && !error && <div className="sav-notice">{notice}</div>}
 
       {view === "list" && (
         <>
@@ -1878,7 +2016,7 @@ export default function App() {
           )}
           {statutFilter === "Non réclamé" && (
             <div className="sav-archive-hint">
-              Fiches au statut Appel/SMS depuis plus de 15 jours, passées automatiquement en Non réclamé — classées par mois puis par jour, et supprimées définitivement après 367 jours dans cet état.
+              Fiches au statut Appel/SMS ou Attente retour client depuis plus de 15 jours, passées automatiquement en Non réclamé — classées par mois puis par jour, et supprimées définitivement après 367 jours dans cet état.
             </div>
           )}
 
@@ -2004,6 +2142,16 @@ export default function App() {
                   <Barcode digits={current.ean14} widthMm={34} heightMm={8} />
                   <span className="sav-mono">{current.ean14}</span>
                 </div>
+              )}
+              {companyConfig.posIp && (
+                <button
+                  className="sav-btn sav-header-save-btn"
+                  onClick={printPos80}
+                  disabled={posPrinting || saving || !current.nom.trim() || !current.telephone.trim() || !current.service}
+                  title="Enregistrer puis imprimer l'étiquette POS80"
+                >
+                  {posPrinting ? <Loader2 size={16} /> : <Printer size={16} />}
+                </button>
               )}
               <button
                 className="sav-btn primary sav-header-save-btn"
@@ -2592,6 +2740,21 @@ export default function App() {
                   </>
                 )}
               </div>
+              {companyConfig.posIp && (
+                <button
+                  className="sav-btn"
+                  onClick={printPos80}
+                  disabled={posPrinting || saving || !current.nom.trim() || !current.telephone.trim() || !current.service}
+                  title="Enregistrer puis imprimer l'étiquette sur l'imprimante POS80"
+                >
+                  <Printer size={15} /> {posPrinting ? "Impression..." : "POS80"}
+                </button>
+              )}
+              {!isAndroidDevice() && (
+                <button className="sav-btn" onClick={openShopSettings} title="Informations du magasin (nom, téléphone, imprimante POS80...)">
+                  <Settings size={15} /> Magasin
+                </button>
+              )}
               {current.id &&
                 isAndroidDevice() &&
                 SMS_TEMPLATE_KEYS_BY_STATUS[current.statut] &&
@@ -2660,12 +2823,30 @@ export default function App() {
                     Enregistre la fiche et revient à l'accueil si elle reste inactive ce délai.
                   </span>
                 </div>
+                <div className="sav-field" style={{ marginTop: 10 }}>
+                  <label>POS80 :</label>
+                  <input
+                    value={companyFormDraft.posIp || ""}
+                    onChange={(e) => setCompanyFormDraft((d) => ({ ...d, posIp: e.target.value }))}
+                    placeholder="192.168.1.51"
+                    inputMode="decimal"
+                  />
+                  <span style={{ display: "block", marginTop: 4, fontSize: 11, color: (companyFormDraft.posIp || "").trim() && !isValidPrinterIp(companyFormDraft.posIp) ? "var(--red)" : "var(--text-muted)" }}>
+                    {(companyFormDraft.posIp || "").trim() && !isValidPrinterIp(companyFormDraft.posIp)
+                      ? "Adresse IP invalide (réseau local uniquement : 192.168.x.x, 10.x.x.x ou 172.16 à 31.x.x)."
+                      : "Adresse IP de l'imprimante thermique 80 mm. Laisser vide pour masquer les boutons POS80."}
+                  </span>
+                </div>
                 <div className="row" style={{ marginTop: 16 }}>
-                  <button className="sav-btn" onClick={() => setSmsModalOpen(false)}>Annuler</button>
+                  <button className="sav-btn" onClick={() => { setShopOnly(false); setSmsModalOpen(false); }}>Annuler</button>
                   <button
                     className="sav-btn primary"
                     onClick={saveCompanyConfig}
-                    disabled={!companyFormDraft.companyName.trim() || !companyFormDraft.companyPhone.trim()}
+                    disabled={
+                      !companyFormDraft.companyName.trim() ||
+                      !companyFormDraft.companyPhone.trim() ||
+                      ((companyFormDraft.posIp || "").trim() !== "" && !isValidPrinterIp(companyFormDraft.posIp))
+                    }
                   >
                     Enregistrer
                   </button>
