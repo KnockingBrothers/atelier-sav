@@ -23,6 +23,7 @@ Il a été écrit par un technicien de maintenance informatique pour son propre 
 - [Installation et déploiement](#installation-et-déploiement)
 - [Fonctionnement de l'application](#fonctionnement-de-lapplication)
 - [Fonctionnalité SMS](#fonctionnalité-sms)
+- [E-mail au client](#e-mail-au-client)
 - [Impression directe POS80](#impression-directe-pos80)
 - [Application Android](#atelier-sav--application-android)
 - [Sauvegarde et restauration de la base de données](#sauvegarde-et-restauration-de-la-base-de-données)
@@ -41,6 +42,7 @@ Il a été écrit par un technicien de maintenance informatique pour son propre 
 - **Tarification** : jusqu'à 10 lignes de pièces détachées, main d'œuvre, total calculé automatiquement, prise en charge à déduire.
 - **Numéro de fiche et code-barres EAN-14 (ITF-14)** générés automatiquement ; la fiche s'ouvre en scannant le code avec une douchette USB ou avec la caméra de l'application Android.
 - **Impression** de la fiche, d'étiquettes (POS80, 50×30, 40×30, 62×29 Brother DK, 57×32 ou format personnalisé) et **PDF au format B5**.
+- **E-mail au client** : un bouton enveloppe apparaît à côté du champ Email quand il est rempli ; il ouvre la messagerie du poste avec le message prérempli (mêmes messages que les SMS).
 - **Impression directe POS80** (optionnelle) : étiquette envoyée par le serveur à une imprimante thermique 80 mm en réseau, avec coupe automatique — voir [Impression directe POS80](#impression-directe-pos80).
 - **SMS préparés** pour le client depuis un appareil Android, sans jamais envoi automatique.
 - **Classement par mois et par jour**, onglets par statut et par service, recherche, archivage automatique et fiches « Non réclamé ».
@@ -235,6 +237,19 @@ Une fiche "Sur site" n'a que **trois statuts possibles** : Reçu, En cours, Prê
 
 Dans le statut **En cours**, le bouton SMS est disponible même sans numéro de téléphone renseigné, avec un message supplémentaire **"Récap Sur site"** : contrairement aux autres messages, celui-ci s'ouvre **sans destinataire pré-rempli** (vous choisissez vous-même à qui l'envoyer) et ne contient que Nom, Téléphone, date, heure et adresse — rien d'autre, ce n'est pas un message destiné au client.
 
+## E-mail au client
+
+Quand le champ **Email** d'une fiche est rempli, un **bouton enveloppe** (de la couleur du bouton Enregistrer) apparaît à droite du champ. Il fonctionne sur PC comme sur Android.
+
+Un clic ouvre le même choix de messages que pour les SMS, selon le **statut** de la fiche (Appel/SMS : les 7 messages et le message personnalisé ; Attente retour client, Attente pièces, Prêt : ceux du SMS ; autres statuts : message personnalisé seulement). Le choix ouvre la **messagerie par défaut du poste** (Outlook, Thunderbird, application Mail…) avec :
+
+- **À** : l'adresse de la fiche ;
+- **Objet** : adapté au message, avec le numéro de la fiche (ex. « Votre imprimante est prête – fiche T-2026-0099 ») ;
+- **Texte** : « Bonjour, », le message (même mot adapté au Service : ordinateur, téléphone, imprimante, tablette), puis la signature « Cordialement, » suivie du nom et du téléphone du magasin ;
+- pour le **devis** : les lignes de pièces remplies, la main d'œuvre éventuelle et le total.
+
+**L'envoi reste toujours manuel** : vous relisez puis vous cliquez sur Envoyer. Si le nom et le téléphone du magasin ne sont pas encore renseignés, la fenêtre des informations du magasin s'ouvre d'abord (voir [Impression directe POS80](#impression-directe-pos80) pour y accéder). Les messages « Mess.Abs. » et « Récap Sur site » ne sont pas proposés par e-mail.
+
 ## Impression directe POS80
 
 En complément de l'impression par le navigateur, Atelier SAV peut envoyer l'étiquette **directement à une imprimante thermique 80 mm en réseau** (testé avec une Epson TM-T20III), coupe du papier comprise. Cette fonction est **facultative** : tant qu'aucune adresse IP n'est renseignée, rien ne change.
@@ -242,8 +257,8 @@ En complément de l'impression par le navigateur, Atelier SAV peut envoyer l'ét
 ### Activer la fonction
 
 1. Branchez l'imprimante au réseau (prise RJ45) et donnez-lui une adresse IP fixe (réservation DHCP dans la box, ou outil EpsonNet Config). Le ticket de test (éteindre l'imprimante, maintenir FEED en la rallumant) indique son adresse actuelle.
-2. Ouvrez la fenêtre **Informations du magasin** : bouton **Magasin** dans la barre du bas d'une fiche (sur PC), ou bouton SMS puis « Modifier les informations du magasin » (sur Android).
-3. Renseignez le champ **POS80 :** avec l'adresse IP, par exemple `192.168.1.51`, puis Enregistrer. Seules les adresses du réseau local sont acceptées (192.168.x.x, 10.x.x.x, 172.16 à 31.x.x). Pour désactiver la fonction, videz le champ.
+2. Ouvrez la fenêtre **Informations du magasin** : raccourci clavier **Alt + M puis S** (depuis n'importe quel écran, sur PC ; **Échap** pour la fermer — volontairement sans bouton visible), ou bouton SMS puis « Modifier les informations du magasin » (sur Android).
+3. Renseignez le champ **POS80 :** avec l'adresse IP, par exemple `192.168.1.51` (le port 9100 est renseigné automatiquement), puis Enregistrer. Seules les adresses du réseau local sont acceptées (192.168.x.x, 10.x.x.x, 172.16 à 31.x.x). Pour désactiver la fonction, videz le champ.
 
 ### Utilisation
 
@@ -263,6 +278,8 @@ Numéro de fiche (en grand), date et heure, nom du client, modèle et Service, p
 Le navigateur ne peut pas ouvrir de connexion TCP : il appelle la route `POST /api/print` du serveur, qui construit les commandes **ESC/POS** (`server/escpos.js`) et les envoie à l'imprimante sur le **port TCP 9100**. Les accents sont encodés en CP858 (table 19 des Epson). La route refuse toute adresse qui n'est pas du réseau local.
 
 Réglages dans `server/escpos.js` : `FEED_BEFORE_CUT_DOTS` (avance avant coupe, 320 points = 4 cm à 203 dpi). Une imprimante autre qu'Epson peut demander un autre numéro de table de caractères ou une autre commande de coupe.
+
+En cas d'échec, le message distingue les causes : imprimante injoignable (adresse IP fausse, imprimante éteinte, port 9100 occupé), adresse refusée, serveur pas à jour (route d'impression absente après une mise à jour sans redémarrage) ou serveur Atelier SAV injoignable. Rappel : voir l'imprimante dans le navigateur ne prouve pas que le **serveur** la joint — vérifiez que l'adresse IP saisie est bien celle de l'imprimante.
 
 Test sans l'application, depuis le Raspberry Pi :
 

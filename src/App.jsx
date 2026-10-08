@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, AlertCircle, Loader2, Tag, ArchiveRestore, Archive, MessageSquare, ChevronDown, Settings } from "lucide-react";
+import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, AlertCircle, Loader2, Tag, ArchiveRestore, Archive, MessageSquare, ChevronDown, Mail } from "lucide-react";
 // jsPDF n'est plus importé ici en statique : il est chargé à la demande
 // (voir generateTicketPDF) pour éviter d'alourdir le chargement initial
 // de l'application avec une librairie utilisée seulement à l'impression.
@@ -302,6 +302,75 @@ function openSms(phone, message) {
   const cleanPhone = String(phone || "").replace(/\s+/g, "");
   const url = `sms:${cleanPhone}?body=${encodeURIComponent(message)}`;
   window.location.href = url;
+}
+
+// ── E-mail ──────────────────────────────────────────────────────────
+// Mêmes messages et même logique par statut que les SMS, mis en forme en
+// e-mail : "Bonjour," puis le texte, puis une signature (nom et téléphone
+// du magasin), avec un objet adapté. Ouvre la messagerie du poste via un
+// lien mailto: — l'envoi reste toujours manuel.
+const EMAIL_EXCLUDED_KEYS = ["messAbs", "surSiteRecap"];
+
+function getEmailTemplatesForStatus(statut) {
+  const keys = SMS_TEMPLATE_KEYS_BY_STATUS[statut] || ["custom"];
+  return SMS_TEMPLATES.filter((t) => keys.includes(t.key) && !EMAIL_EXCLUDED_KEYS.includes(t.key));
+}
+
+function buildEmailMessage(templateKey, customText, config, ticket) {
+  const { nom, fem } = smsDeviceInfo(ticket);
+  const companyName = (config.companyName || "").trim();
+  const companyPhone = (config.companyPhone || "").trim();
+  const code = splitNumeroForLabel(ticket && ticket.numero).code;
+  const suffix = code ? ` – fiche ${code}` : "";
+  const signature = `Cordialement,\n${companyName}\n${companyPhone}`.trim();
+
+  let subject = `Votre ${nom}${suffix}`;
+  let core;
+  if (templateKey === "custom") {
+    core = (customText || "").trim();
+  } else if (templateKey === "devis") {
+    subject = `Devis de réparation${suffix}`;
+    const pieces = (ticket && ticket.pieces) || [];
+    const filled = pieces.filter((p) => p.piece && p.piece.trim() !== "");
+    const lines = filled.map((p) => `${p.piece.trim()} : ${Number(p.tarifPiece) || 0} € TTC`);
+    const mo1 = Number(pieces[0]?.tarifMo) || 0;
+    if (mo1 > 0) lines.push(`Main d'œuvre : ${mo1} € TTC`);
+    if (lines.length > 0) {
+      const total = Number(pieces[0]?.total) || 0;
+      lines.push(`Total : ${total} € TTC`);
+      core = `Voici le détail de la réparation de votre ${nom} :\n${lines.join("\n")}\n\nVotre accord est requis avant intervention.`;
+    } else {
+      core = `Votre accord est nécessaire avant intervention sur votre ${nom}.`;
+    }
+  } else {
+    // Texte du SMS correspondant, sans la ligne "nom du magasin" en tête
+    // (le nom figure dans la signature) ni le "Bonjour, " d'ouverture.
+    let text = buildSmsMessage(templateKey, "", config, ticket);
+    if (companyName && text.startsWith(companyName + "\n")) text = text.slice(companyName.length + 1);
+    if (text.startsWith("Bonjour, ")) {
+      const rest = text.slice("Bonjour, ".length);
+      text = rest.charAt(0).toUpperCase() + rest.slice(1);
+    }
+    core = text;
+    if (templateKey === "pret") subject = `Votre ${nom} est prêt${fem ? "e" : ""}${suffix}`;
+    else if (templateKey === "pieces") subject = `Votre ${nom} – en attente de pièces${suffix}`;
+    else if (templateKey === "rappel") subject = `Votre ${nom} vous attend${suffix}`;
+    else if (templateKey === "irreparable") subject = `Votre ${nom} – résultat du diagnostic${suffix}`;
+  }
+  const body = `Bonjour,\n\n${core}\n\n${signature}`;
+  return { subject, body };
+}
+
+// Ouvre la messagerie par défaut avec destinataire, objet et texte
+// préremplis (via un lien cliqué par programme, plus fiable qu'une
+// redirection de la page). Retours à la ligne au format CRLF.
+function openEmail(to, subject, body) {
+  const url = `mailto:${String(to || "").trim()}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body.replace(/\n/g, "\r\n"))}`;
+  const a = document.createElement("a");
+  a.href = url;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
 }
 
 function callPhone(phone) {
@@ -939,6 +1008,9 @@ export default function App() {
   const [shopOnly, setShopOnly] = useState(false); // fenêtre ouverte depuis "Magasin" (pas depuis SMS)
   const [posPrinting, setPosPrinting] = useState(false);
   const [notice, setNotice] = useState("");
+  const [mailModalOpen, setMailModalOpen] = useState(false);
+  const [mailStep, setMailStep] = useState("templates");
+  const [mailCustomText, setMailCustomText] = useState("");
   const [smsModalOpen, setSmsModalOpen] = useState(false);
   const [smsStep, setSmsStep] = useState("templates");
   const [smsCustomText, setSmsCustomText] = useState("");
@@ -1384,11 +1456,33 @@ export default function App() {
           },
         }),
       });
-      if (!res.ok) throw new Error("print_failed");
+      if (!res.ok) {
+        let code = "";
+        try {
+          code = (await res.json()).error || "";
+        } catch {}
+        const err = new Error(code || `http_${res.status}`);
+        err.status = res.status;
+        err.code = code;
+        throw err;
+      }
       setNotice("Étiquette envoyée à l'imprimante POS80.");
       setTimeout(() => setNotice(""), 5000);
-    } catch {
-      setError("Fiche enregistrée, mais l'impression POS80 a échoué : vérifiez que l'imprimante est allumée et connectée au réseau (IP " + companyConfig.posIp + ").");
+    } catch (e) {
+      const ip = companyConfig.posIp;
+      let why;
+      if (e && e.code === "imprimante_injoignable") {
+        why = `le serveur n'arrive pas à joindre l'imprimante à l'adresse ${ip} (port 9100). Vérifiez l'adresse IP, que l'imprimante est allumée, branchée au réseau et qu'aucun autre poste ne la monopolise.`;
+      } else if (e && e.code === "ip_invalide") {
+        why = `l'adresse ${ip} n'est pas acceptée (réseau local uniquement : 192.168.x.x, 10.x.x.x ou 172.16 à 31.x.x). Corrigez-la dans les informations du magasin (Alt+M puis S).`;
+      } else if (e && (e.status === 404 || e.status === 405)) {
+        why = "le serveur n'est pas à jour (route d'impression absente). Relancez ./deploy.sh ou « pm2 restart atelier-sav » sur le serveur.";
+      } else if (e && e.status) {
+        why = `le serveur a répondu avec une erreur (${e.status}).`;
+      } else {
+        why = "le serveur Atelier SAV ne répond pas. Vérifiez la connexion au réseau.";
+      }
+      setError("Fiche enregistrée, mais l'impression POS80 a échoué : " + why);
     }
     setPosPrinting(false);
   };
@@ -1619,6 +1713,58 @@ export default function App() {
     setSmsStep("setup");
     setSmsModalOpen(true);
   };
+
+  // E-mail au client : ouvre le choix du message. Si le nom ou le
+  // téléphone du magasin ne sont pas encore renseignés (signature), on
+  // ouvre d'abord la fenêtre des informations du magasin.
+  const openMailModal = () => {
+    if (!companyConfig.companyName || !companyConfig.companyPhone) {
+      setError("Renseignez d'abord le nom et le téléphone du magasin (ils servent de signature), puis cliquez de nouveau sur l'enveloppe.");
+      openShopSettings();
+      return;
+    }
+    setError("");
+    setMailCustomText("");
+    setMailStep("templates");
+    setMailModalOpen(true);
+  };
+
+  const sendEmailTemplate = (key, customText = "") => {
+    if (key === "custom" && !customText) {
+      setMailStep("custom");
+      return;
+    }
+    const { subject, body } = buildEmailMessage(key, customText, companyConfig, current);
+    openEmail(current.email, subject, body);
+    setMailModalOpen(false);
+  };
+
+  // Raccourci clavier : Alt + M puis S (dans les 2 secondes) ouvre la fenêtre
+  // des informations du magasin, depuis n'importe quel écran. Échap la ferme.
+  const openShopRef = useRef(null);
+  openShopRef.current = openShopSettings;
+  useEffect(() => {
+    let lastM = 0;
+    const onKey = (e) => {
+      if (e.key === "Escape") {
+        setSmsModalOpen(false);
+        setMailModalOpen(false);
+        return;
+      }
+      if (!e.altKey || e.ctrlKey || e.metaKey) return;
+      const k = (e.key || "").toLowerCase();
+      if (k === "m") {
+        lastM = Date.now();
+        e.preventDefault();
+      } else if (k === "s" && Date.now() - lastM < 2000) {
+        lastM = 0;
+        e.preventDefault();
+        if (openShopRef.current) openShopRef.current();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
 
   const saveCompanyConfig = async () => {
     const cfg = {
@@ -2268,7 +2414,19 @@ export default function App() {
                 </div>
                 <div className="sav-field">
                   <label>Email</label>
-                  <input value={current.email} onChange={(e) => update({ email: e.target.value })} placeholder="client@email.com" />
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input value={current.email} onChange={(e) => update({ email: e.target.value })} placeholder="client@email.com" />
+                    {current.email && current.email.trim() && (
+                      <button
+                        type="button"
+                        className="sav-btn primary sav-header-save-btn"
+                        onClick={openMailModal}
+                        title="Écrire au client (ouvre votre messagerie avec le message prérempli)"
+                      >
+                        <Mail size={16} />
+                      </button>
+                    )}
+                  </div>
                 </div>
               </div>
               <div className="sav-field-row">
@@ -2750,11 +2908,6 @@ export default function App() {
                   <Printer size={15} /> {posPrinting ? "Impression..." : "POS80"}
                 </button>
               )}
-              {!isAndroidDevice() && (
-                <button className="sav-btn" onClick={openShopSettings} title="Informations du magasin (nom, téléphone, imprimante POS80...)">
-                  <Settings size={15} /> Magasin
-                </button>
-              )}
               {current.id &&
                 isAndroidDevice() &&
                 SMS_TEMPLATE_KEYS_BY_STATUS[current.statut] &&
@@ -2783,6 +2936,46 @@ export default function App() {
               <button className="sav-btn" onClick={() => setConfirmDelete(null)}>Annuler</button>
               <button className="sav-btn danger" onClick={() => deleteTicket(confirmDelete)}>Supprimer</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {mailModalOpen && current && (
+        <div className="sav-confirm" onClick={() => setMailModalOpen(false)}>
+          <div className="sav-confirm-box sav-sms-box" onClick={(e) => e.stopPropagation()}>
+            {mailStep === "templates" && (
+              <>
+                <h3 className="sav-sms-title">Choisir un message e-mail</h3>
+                <div className="sav-sms-list">
+                  {getEmailTemplatesForStatus(current.statut).map((t) => (
+                    <button key={t.key} className="sav-sms-item" onClick={() => sendEmailTemplate(t.key)}>
+                      {t.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="row" style={{ justifyContent: "flex-end", marginTop: 4 }}>
+                  <button className="sav-btn" onClick={() => setMailModalOpen(false)}>Fermer</button>
+                </div>
+              </>
+            )}
+            {mailStep === "custom" && (
+              <>
+                <h3 className="sav-sms-title">Message personnalisé</h3>
+                <textarea
+                  className="sav-sms-textarea"
+                  value={mailCustomText}
+                  onChange={(e) => setMailCustomText(e.target.value)}
+                  placeholder="Rédigez votre message..."
+                />
+                <p className="sav-sms-hint">« Bonjour, » est ajouté au début, et la signature (nom et téléphone du magasin) à la fin.</p>
+                <div className="row">
+                  <button className="sav-btn" onClick={() => setMailStep("templates")}>Retour</button>
+                  <button className="sav-btn primary" onClick={() => sendEmailTemplate("custom", mailCustomText.trim())} disabled={!mailCustomText.trim()}>
+                    Ouvrir la messagerie
+                  </button>
+                </div>
+              </>
+            )}
           </div>
         </div>
       )}
@@ -2834,7 +3027,7 @@ export default function App() {
                   <span style={{ display: "block", marginTop: 4, fontSize: 11, color: (companyFormDraft.posIp || "").trim() && !isValidPrinterIp(companyFormDraft.posIp) ? "var(--red)" : "var(--text-muted)" }}>
                     {(companyFormDraft.posIp || "").trim() && !isValidPrinterIp(companyFormDraft.posIp)
                       ? "Adresse IP invalide (réseau local uniquement : 192.168.x.x, 10.x.x.x ou 172.16 à 31.x.x)."
-                      : "Adresse IP de l'imprimante thermique 80 mm. Laisser vide pour masquer les boutons POS80."}
+                      : "Adresse IP de l'imprimante thermique 80 mm (le port 9100 est renseigné automatiquement). Laisser vide pour masquer les boutons POS80."}
                   </span>
                 </div>
                 <div className="row" style={{ marginTop: 16 }}>
