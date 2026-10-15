@@ -159,6 +159,8 @@ Une fiche passe par plusieurs statuts (Reçu, En cours, Attente retour client, A
 - **Archivage** : une fiche au statut **Restitué** depuis plus de **24h** est archivée automatiquement (ou manuellement à tout moment via l'icône dédiée sur sa carte). Les fiches archivées sont classées par mois puis par jour dans l'onglet **Archivées**, et supprimées **définitivement après 367 jours** d'archivage.
 - **Non réclamé** : une fiche au statut **Appel/SMS** ou **Attente retour client** depuis plus de **15 jours** bascule automatiquement dans l'onglet **Non réclamé** (juste après Archivées) et disparaît des onglets normaux. Même classement par mois/jour, et même suppression définitive après **367 jours**. Si le statut de la fiche change entre-temps, elle redevient visible normalement et le délai repart de zéro si elle repasse un jour dans l'un de ces deux statuts. Si une fiche Non réclamé passe directement au statut Restitué, elle est archivée immédiatement (sans attendre les 24h habituelles).
 
+**Passage manuel en Non réclamé** — dans une fiche ouverte, le raccourci **Alt + M puis N** (sur PC, N dans les 2 secondes) enregistre la fiche, la place immédiatement en Non réclamé (son statut est conservé) et revient à la liste, sans confirmation. Les champs obligatoires (Nom, Téléphone, Service) doivent être remplis. Refusé pour une fiche déjà Non réclamé, Restitué, archivée ou Sur site « Prêt ». Pour l'annuler, rouvrir la fiche depuis l'onglet Non réclamé et changer son statut.
+
 Ces deux suppressions définitives sont **irréversibles**, contrairement à l'archivage ou au passage en Non réclamé, qui peuvent toujours être annulés en changeant le statut de la fiche.
 
 **Classement par mois et par jour** — tous les onglets de la page principale (Toutes, Reçu, Informatique, Téléphonie, etc.) sont classés du plus récent au plus ancien, et les fiches d'un même jour par ordre alphabétique du nom du client. La date de référence dépend de l'onglet : date de **création de la fiche** (prise en charge) pour les onglets normaux, date d'**archivage** pour Archivées, et date de **passage en Non réclamé** pour Non réclamé.
@@ -194,9 +196,11 @@ Selon le statut de la fiche, un choix de messages prédéfinis s'affiche :
 | Statut de la fiche | Messages proposés |
 |---|---|
 | **Appel/SMS** | Les 8 messages : Appareil prêt, En attente de pièces, Besoin d'informations/accord, Devis/accord, Rappel de récupération, Réparation impossible, Refus de réparation, Message personnalisé |
-| **Attente retour client** | Besoin d'informations/accord, Devis/accord, Message personnalisé |
+| **Attente retour client** | Besoin d'informations/accord, Devis/accord, Réparation impossible, **Cartouche compatible** (imprimantes uniquement), Message personnalisé |
 | **Attente pièces** | En attente de pièces, Message personnalisé |
 | **En cours** | 📞 Appel Client (toujours visible) et Message personnalisé — Mess.Abs. s'ajoute en plus si le Service de la fiche est "Appeler le client" (voir plus bas) |
+
+**Cartouche compatible** : message proposé uniquement pour une imprimante au statut Attente retour client (SMS et e-mail). Il explique que le blocage vient de cartouches compatibles détectées comme non originales et qu'il faut acheter une cartouche d'origine. Si la **Tarification** de la fiche est renseignée, le détail (pièces, main d'œuvre, total) est ajouté au message.
 
 Le mot « appareil » dans les messages est **remplacé automatiquement selon le Service de la fiche** (avec accord au féminin : « prête », « réparée », « la récupérer ») :
 

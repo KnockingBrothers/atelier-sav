@@ -147,6 +147,15 @@ const SMS_TEMPLATES = [
     text: "Suite à votre refus de réparation, votre {appareil} reste disponible en magasin ;\npour toute information, contactez-nous au : {companyPhone} {companyName}.",
   },
   {
+    key: "cartouche",
+    label: "Cartouche compatible",
+    // Uniquement proposé pour une imprimante au statut "Attente retour
+    // client" (voir getSmsTemplatesForStatus). Si la tarification est
+    // renseignée, le détail des prix est ajouté (voir buildSmsMessage).
+    text: "Bonjour, le blocage de votre imprimante est dû à des cartouches compatibles. L'imprimante les détecte comme non originales et bloque les impressions.\nPour débloquer la situation, il faut acheter une cartouche de marque d'origine.",
+    cartoucheOnly: true,
+  },
+  {
     key: "messAbs",
     label: "Mess.Abs.",
     text: "Bonjour, nous avons tenté de vous joindre par téléphone le {date} à {heure}, sans succès.\nMerci de nous rappeler au {companyPhone} {companyName}.",
@@ -188,9 +197,36 @@ const SMS_TEMPLATE_KEYS_BY_STATUS = {
   "Prêt": ["pret", "custom"],
 };
 
-function getSmsTemplatesForStatus(statut, service) {
+// "Cartouche compatible" : imprimante (Service Imprimante, ou Appeler le
+// client pour l'Imprimante) au statut "Attente retour client" uniquement.
+function cartoucheAllowed(statut, ticket) {
+  return statut === "Attente retour client" && !!ticket && smsDeviceInfo(ticket).nom === "imprimante";
+}
+
+// Lignes de tarification renseignées (pièces, main d'œuvre, total), ou
+// null si rien n'est rempli.
+function pricingLines(ticket) {
+  const pieces = (ticket && ticket.pieces) || [];
+  const filled = pieces.filter((p) => p.piece && p.piece.trim() !== "");
+  const lines = filled.map((p) => `${p.piece.trim()} : ${Number(p.tarifPiece) || 0} € TTC`);
+  const mo1 = Number(pieces[0]?.tarifMo) || 0;
+  if (mo1 > 0) lines.push(`Main d'œuvre : ${mo1} € TTC`);
+  if (lines.length === 0) return null;
+  lines.push(`Total : ${Number(pieces[0]?.total) || 0} € TTC`);
+  return lines;
+}
+
+function getSmsTemplatesForStatus(statut, service, ticket) {
   const keys = SMS_TEMPLATE_KEYS_BY_STATUS[statut];
   let list = keys ? SMS_TEMPLATES.filter((t) => keys.includes(t.key)) : SMS_TEMPLATES.slice();
+  list = list.filter((t) => !t.cartoucheOnly);
+  if (cartoucheAllowed(statut, ticket)) {
+    const cart = SMS_TEMPLATES.find((t) => t.key === "cartouche");
+    const customIdx = list.findIndex((t) => t.key === "custom");
+    list = customIdx !== -1
+      ? [...list.slice(0, customIdx), cart, ...list.slice(customIdx)]
+      : [...list, cart];
+  }
   if (service === "Appeler le client") {
     const messAbs = SMS_TEMPLATES.find((t) => t.key === "messAbs");
     if (messAbs && !list.includes(messAbs)) {
@@ -273,6 +309,12 @@ function buildSmsMessage(templateKey, customText, config, ticket) {
     }
     return `Nom : ${ticket?.nom || ""}\nTéléphone : ${ticket?.telephone || ""}\nDate : ${dateStr}\nHeure : ${heureStr}\nAdresse : ${ticket?.adresse || ""}`;
   }
+  if (templateKey === "cartouche") {
+    const base = SMS_TEMPLATES.find((t) => t.key === "cartouche").text;
+    const lines = pricingLines(ticket);
+    const tarif = lines ? `\n${lines.join("\n")}` : "";
+    return `${base}${tarif}\n${companyPhone} – ${companyName}`;
+  }
   const tpl = SMS_TEMPLATES.find((t) => t.key === templateKey);
   if (!tpl) return "";
   const fem = smsDeviceInfo(ticket).fem;
@@ -311,9 +353,17 @@ function openSms(phone, message) {
 // lien mailto: — l'envoi reste toujours manuel.
 const EMAIL_EXCLUDED_KEYS = ["messAbs", "surSiteRecap"];
 
-function getEmailTemplatesForStatus(statut) {
+function getEmailTemplatesForStatus(statut, ticket) {
   const keys = SMS_TEMPLATE_KEYS_BY_STATUS[statut] || ["custom"];
-  return SMS_TEMPLATES.filter((t) => keys.includes(t.key) && !EMAIL_EXCLUDED_KEYS.includes(t.key));
+  let list = SMS_TEMPLATES.filter((t) => keys.includes(t.key) && !EMAIL_EXCLUDED_KEYS.includes(t.key) && !t.cartoucheOnly);
+  if (cartoucheAllowed(statut, ticket)) {
+    const cart = SMS_TEMPLATES.find((t) => t.key === "cartouche");
+    const customIdx = list.findIndex((t) => t.key === "custom");
+    list = customIdx !== -1
+      ? [...list.slice(0, customIdx), cart, ...list.slice(customIdx)]
+      : [...list, cart];
+  }
+  return list;
 }
 
 function buildEmailMessage(templateKey, customText, config, ticket) {
@@ -342,6 +392,11 @@ function buildEmailMessage(templateKey, customText, config, ticket) {
     } else {
       core = `Votre accord est nécessaire avant intervention sur votre ${nom}.`;
     }
+  } else if (templateKey === "cartouche") {
+    subject = `Votre ${nom} – cartouches compatibles${suffix}`;
+    const base = SMS_TEMPLATES.find((t) => t.key === "cartouche").text.replace(/^Bonjour, /, "");
+    const lines = pricingLines(ticket);
+    core = base.charAt(0).toUpperCase() + base.slice(1) + (lines ? `\n\n${lines.join("\n")}` : "");
   } else {
     // Texte du SMS correspondant, sans la ligne "nom du magasin" en tête
     // (le nom figure dans la signature) ni le "Bonjour, " d'ouverture.
@@ -1739,8 +1794,62 @@ export default function App() {
     setMailModalOpen(false);
   };
 
-  // Raccourci clavier : Alt + M puis S (dans les 2 secondes) ouvre la fenêtre
-  // des informations du magasin, depuis n'importe quel écran. Échap la ferme.
+  // Raccourci Alt + M puis N : enregistre la fiche et la passe aussitôt en
+  // "Non réclamé" (statut conservé), puis retourne à la liste. Pas de
+  // confirmation. Elle redevient visible normalement dès que son statut
+  // change (voir persistTicket). Refusé pour une fiche déjà restituée ou
+  // archivée (elle suit son propre circuit d'archivage).
+  const markNonReclame = async () => {
+    if (!current || view !== "edit" || saving) return;
+    if (current.nonReclame) {
+      setNotice("Cette fiche est déjà en Non réclamé.");
+      setTimeout(() => setNotice(""), 5000);
+      return;
+    }
+    if (current.statut === "Restitué" || current.archived || (current.service === "Sur site" && current.statut === "Prêt")) {
+      setError("Une fiche restituée ou archivée ne peut pas passer en Non réclamé.");
+      return;
+    }
+    if (!current.nom.trim()) {
+      setNomTouched(true);
+      setError("Le nom du client est requis.");
+      return;
+    }
+    if (!current.telephone.trim()) {
+      setTelephoneTouched(true);
+      setError("Le téléphone du client est requis.");
+      return;
+    }
+    if (!current.service) {
+      setServiceTouched(true);
+      setError("Le service est requis.");
+      return;
+    }
+    setError("");
+    setNotice("");
+    setSaving(true);
+    try {
+      const saved = await persistTicket({
+        ...current,
+        nonReclame: true,
+        nonReclameAt: Date.now(),
+        nonReclameStatut: current.statut,
+      });
+      const code = splitNumeroForLabel(saved.numero).code;
+      backToList();
+      setNotice(`Fiche ${code} passée en Non réclamé.`);
+      setTimeout(() => setNotice(""), 6000);
+    } catch {
+      setError("Échec de l'enregistrement. Réessayez.");
+    }
+    setSaving(false);
+  };
+  const markNonReclameRef = useRef(null);
+  markNonReclameRef.current = markNonReclame;
+
+  // Raccourcis clavier : Alt + M puis S (dans les 2 secondes) ouvre la fenêtre
+  // des informations du magasin, depuis n'importe quel écran ; Alt + M puis N
+  // passe la fiche ouverte en Non réclamé. Échap ferme les fenêtres.
   const openShopRef = useRef(null);
   openShopRef.current = openShopSettings;
   useEffect(() => {
@@ -1760,6 +1869,10 @@ export default function App() {
         lastM = 0;
         e.preventDefault();
         if (openShopRef.current) openShopRef.current();
+      } else if (k === "n" && Date.now() - lastM < 2000) {
+        lastM = 0;
+        e.preventDefault();
+        if (markNonReclameRef.current) markNonReclameRef.current();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -2162,7 +2275,7 @@ export default function App() {
           )}
           {statutFilter === "Non réclamé" && (
             <div className="sav-archive-hint">
-              Fiches au statut Appel/SMS ou Attente retour client depuis plus de 15 jours, passées automatiquement en Non réclamé — classées par mois puis par jour, et supprimées définitivement après 367 jours dans cet état.
+              Fiches au statut Appel/SMS ou Attente retour client depuis plus de 15 jours, passées automatiquement en Non réclamé (ou manuellement avec Alt+M puis N dans une fiche) — classées par mois puis par jour, et supprimées définitivement après 367 jours dans cet état.
             </div>
           )}
 
@@ -2866,11 +2979,6 @@ export default function App() {
               <button className="sav-btn" onClick={() => doPrintLabel(current)}>
                 <Tag size={15} /> Étiquette
               </button>
-              {current.archived && (
-                <button className="sav-btn" onClick={() => unarchiveTicket(current)} title="Retire la fiche des archives">
-                  <ArchiveRestore size={15} /> Désarchiver
-                </button>
-              )}
               <div className="sav-label-controls">
                 <select value={labelPreset} onChange={(e) => applyLabelPreset(e.target.value)}>
                   {LABEL_PRESETS.map((p) => (
@@ -2906,6 +3014,11 @@ export default function App() {
                   title="Enregistrer puis imprimer l'étiquette sur l'imprimante POS80"
                 >
                   <Printer size={15} /> {posPrinting ? "Impression..." : "POS80"}
+                </button>
+              )}
+              {current.archived && (
+                <button className="sav-btn" onClick={() => unarchiveTicket(current)} title="Retire la fiche des archives">
+                  <ArchiveRestore size={15} /> Désarchiver
                 </button>
               )}
               {current.id &&
@@ -2947,7 +3060,7 @@ export default function App() {
               <>
                 <h3 className="sav-sms-title">Choisir un message e-mail</h3>
                 <div className="sav-sms-list">
-                  {getEmailTemplatesForStatus(current.statut).map((t) => (
+                  {getEmailTemplatesForStatus(current.statut, current).map((t) => (
                     <button key={t.key} className="sav-sms-item" onClick={() => sendEmailTemplate(t.key)}>
                       {t.label}
                     </button>
@@ -3055,7 +3168,7 @@ export default function App() {
                   </button>
                 )}
                 <div className="sav-sms-list">
-                  {getSmsTemplatesForStatus(current.statut, current.service).map((t) => (
+                  {getSmsTemplatesForStatus(current.statut, current.service, current).map((t) => (
                     <button key={t.key} className="sav-sms-item" onClick={() => sendSmsTemplate(t.key)}>
                       {t.label}
                     </button>
