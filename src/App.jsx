@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, AlertCircle, Loader2, Tag, ArchiveRestore, Archive, MessageSquare, ChevronDown, Mail } from "lucide-react";
+import { Plus, Search, X, Printer, Trash2, Save, ArrowLeft, Lock, Smartphone, AlertCircle, Loader2, Tag, ArchiveRestore, Archive, MessageSquare, ChevronDown, Mail, Package } from "lucide-react";
 // jsPDF n'est plus importé ici en statique : il est chargé à la demande
 // (voir generateTicketPDF) pour éviter d'alourdir le chargement initial
 // de l'application avec une librairie utilisée seulement à l'impression.
@@ -264,6 +264,15 @@ function smsDeviceInfo(ticket) {
   if (svc === "Appeler le client") svc = ticket.appelDepartement;
   else if (svc === "Sur site") svc = ticket.surSiteType === "Informatique" ? "Informatique" : "";
   return NOUNS[svc] || { nom: "appareil", fem: false };
+}
+
+// Renvoie le libellé de l'intervention (Install Os / imprimante) à "à faire"
+// dont la zone "Préciser" est vide, sinon null.
+function missingPrecision(t) {
+  const tc = (t && t.taches) || {};
+  if (tc.installOs === "à faire" && !(t.installOsDetail || "").trim()) return "Install Os";
+  if (tc.imprimante === "à faire" && !(t.imprimanteDetail || "").trim()) return "Imprimante";
+  return null;
 }
 
 function buildSmsMessage(templateKey, customText, config, ticket) {
@@ -616,6 +625,7 @@ function blankTicket() {
     taches: {},
     imprimanteDetail: "",
     installOsDetail: "",
+    attentePieces: { lignes: [""], remarque: "" },
   };
 }
 
@@ -1047,6 +1057,7 @@ export default function App() {
   const [nomTouched, setNomTouched] = useState(false);
   const [telephoneTouched, setTelephoneTouched] = useState(false);
   const [serviceTouched, setServiceTouched] = useState(false);
+  const [precisionTouched, setPrecisionTouched] = useState(false);
   const [adresseTouched, setAdresseTouched] = useState(false);
   const [adresseSuggestions, setAdresseSuggestions] = useState([]);
   // Vrai uniquement quand l'utilisateur tape réellement dans le champ
@@ -1064,6 +1075,7 @@ export default function App() {
   const [posPrinting, setPosPrinting] = useState(false);
   const [notice, setNotice] = useState("");
   const [mailModalOpen, setMailModalOpen] = useState(false);
+  const [piecesModalOpen, setPiecesModalOpen] = useState(false);
   const [mailStep, setMailStep] = useState("templates");
   const [mailCustomText, setMailCustomText] = useState("");
   const [smsModalOpen, setSmsModalOpen] = useState(false);
@@ -1328,6 +1340,7 @@ export default function App() {
     setNomTouched(false);
     setTelephoneTouched(false);
     setServiceTouched(false);
+    setPrecisionTouched(false);
     setAdresseTouched(false);
     setAdresseSuggestions([]);
     adresseEditedRef.current = false;
@@ -1340,6 +1353,7 @@ export default function App() {
     setNomTouched(false);
     setTelephoneTouched(false);
     setServiceTouched(false);
+    setPrecisionTouched(false);
     setAdresseTouched(false);
     setAdresseSuggestions([]);
     adresseEditedRef.current = false;
@@ -1353,6 +1367,7 @@ export default function App() {
     setNomTouched(false);
     setTelephoneTouched(false);
     setServiceTouched(false);
+    setPrecisionTouched(false);
     setAdresseTouched(false);
     setAdresseSuggestions([]);
     adresseEditedRef.current = false;
@@ -1447,6 +1462,14 @@ export default function App() {
       setError("Le service est requis.");
       return;
     }
+    {
+      const mp = missingPrecision(current);
+      if (mp) {
+        setPrecisionTouched(true);
+        setError(`Précisez l'intervention « ${mp} » (obligatoire quand elle est à faire).`);
+        return;
+      }
+    }
     setError("");
     setSaving(true);
     try {
@@ -1478,6 +1501,14 @@ export default function App() {
       setServiceTouched(true);
       setError("Le service est requis.");
       return;
+    }
+    {
+      const mp = missingPrecision(current);
+      if (mp) {
+        setPrecisionTouched(true);
+        setError(`Précisez l'intervention « ${mp} » (obligatoire quand elle est à faire).`);
+        return;
+      }
     }
     setError("");
     setNotice("");
@@ -1695,6 +1726,9 @@ export default function App() {
       return { ...c, pieces };
     });
   };
+  // Install Os / Imprimante "à faire" : la zone "Préciser" est obligatoire.
+  const installOsInvalid = precisionTouched && !!current && current.taches.installOs === "à faire" && !(current.installOsDetail || "").trim();
+  const imprimanteInvalid = precisionTouched && !!current && current.taches.imprimante === "à faire" && !(current.imprimanteDetail || "").trim();
   const nomInvalid = nomTouched && current && !current.nom.trim();
   const telephoneInvalid = telephoneTouched && current && !current.telephone.trim();
   const serviceInvalid = serviceTouched && current && !current.service;
@@ -1825,6 +1859,14 @@ export default function App() {
       setError("Le service est requis.");
       return;
     }
+    {
+      const mp = missingPrecision(current);
+      if (mp) {
+        setPrecisionTouched(true);
+        setError(`Précisez l'intervention « ${mp} » (obligatoire quand elle est à faire).`);
+        return;
+      }
+    }
     setError("");
     setNotice("");
     setSaving(true);
@@ -1858,6 +1900,7 @@ export default function App() {
       if (e.key === "Escape") {
         setSmsModalOpen(false);
         setMailModalOpen(false);
+        setPiecesModalOpen(false);
         return;
       }
       if (!e.altKey || e.ctrlKey || e.metaKey) return;
@@ -2654,7 +2697,8 @@ export default function App() {
                       className="sav-tasks-detail-input"
                       value={current.installOsDetail}
                       onChange={(e) => update({ installOsDetail: e.target.value })}
-                      placeholder="Préciser l'intervention Install Os"
+                      placeholder={current.taches.installOs === "à faire" ? "Préciser l'intervention Install Os (obligatoire)" : "Préciser l'intervention Install Os"}
+                      style={installOsInvalid ? { borderColor: "var(--red)" } : undefined}
                     />
                   )}
                   {current.taches.imprimante && (
@@ -2662,7 +2706,8 @@ export default function App() {
                       className="sav-tasks-detail-input"
                       value={current.imprimanteDetail}
                       onChange={(e) => update({ imprimanteDetail: e.target.value })}
-                      placeholder="Préciser l'intervention imprimante"
+                      placeholder={current.taches.imprimante === "à faire" ? "Préciser l'intervention imprimante (obligatoire)" : "Préciser l'intervention imprimante"}
+                      style={imprimanteInvalid ? { borderColor: "var(--red)" } : undefined}
                     />
                   )}
                   {(current.service === "Appeler le client" || current.service === "Sur site") && (
@@ -3016,6 +3061,15 @@ export default function App() {
                   <Printer size={15} /> {posPrinting ? "Impression..." : "POS80"}
                 </button>
               )}
+              {(current.statut === "Attente pièces" || current.statut === "Attente retour client") && (() => {
+                const ap = current.attentePieces || {};
+                const filled = !!((Array.isArray(ap.lignes) ? ap.lignes.some((l) => l.trim()) : ap.piece) || ap.remarque);
+                return (
+                  <button className="sav-btn" onClick={() => setPiecesModalOpen(true)} title="Pièce commandée, prix, acompte, remarque">
+                    <Package size={15} /> Pièces{filled ? " ●" : ""}
+                  </button>
+                );
+              })()}
               {current.archived && (
                 <button className="sav-btn" onClick={() => unarchiveTicket(current)} title="Retire la fiche des archives">
                   <ArchiveRestore size={15} /> Désarchiver
@@ -3052,6 +3106,72 @@ export default function App() {
           </div>
         </div>
       )}
+
+      {piecesModalOpen && current && (() => {
+        const ap = current.attentePieces || {};
+        // Anciennes fiches : une seule pièce saisie dans "piece".
+        const lignes = Array.isArray(ap.lignes) ? ap.lignes : [ap.piece || ""];
+        const setAp = (patch) => update({ attentePieces: { ...ap, lignes, ...patch } });
+        const setLigne = (i, v) => setAp({ lignes: lignes.map((l, k) => (k === i ? v : l)) });
+        const addLigne = () => { if (lignes.length < 10) setAp({ lignes: [...lignes, ""] }); };
+        const delLigne = (i) => setAp({ lignes: lignes.length > 1 ? lignes.filter((_, k) => k !== i) : [""] });
+        // La fenêtre s'adapte à la ligne la plus longue.
+        const longest = Math.max(24, ...lignes.map((l) => l.length + 2));
+        return (
+          <div className="sav-confirm" onClick={() => setPiecesModalOpen(false)}>
+            <div
+              className="sav-confirm-box sav-sms-box"
+              style={{ width: "fit-content", minWidth: 320, maxWidth: "92vw" }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <h3 className="sav-sms-title">Attente pièces</h3>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 6 }}>
+                <label style={{ fontSize: 11.5, color: "var(--text-muted)" }}>Pièces commandées</label>
+                <button
+                  type="button"
+                  className="sav-pieces-add-btn"
+                  style={{ width: 32, height: 32, alignSelf: "auto" }}
+                  onClick={addLigne}
+                  disabled={lignes.length >= 10}
+                  title="Ajouter une pièce (10 maximum)"
+                >
+                  <Plus size={16} />
+                </button>
+              </div>
+              <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                {lignes.map((l, i) => (
+                  <div key={i} style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    <input
+                      className="sav-tasks-detail-input"
+                      style={{ marginTop: 0, width: `${longest}ch`, maxWidth: "100%" }}
+                      value={l}
+                      onChange={(e) => setLigne(i, e.target.value)}
+                      placeholder="Pièce, référence, fournisseur…"
+                      autoFocus={i === 0}
+                    />
+                    <button
+                      type="button"
+                      className="sav-pieces-remove-btn"
+                      onClick={() => delLigne(i)}
+                      title="Supprimer cette ligne"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="sav-field" style={{ marginTop: 12 }}>
+                <label>Remarque</label>
+                <textarea className="sav-sms-textarea" value={ap.remarque || ""} onChange={(e) => setAp({ remarque: e.target.value })} placeholder="Remarque libre" />
+              </div>
+              <p className="sav-sms-hint">Ces informations sont enregistrées avec la fiche (bouton Enregistrer).</p>
+              <div className="row" style={{ justifyContent: "flex-end" }}>
+                <button className="sav-btn primary" onClick={() => setPiecesModalOpen(false)}>OK</button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {mailModalOpen && current && (
         <div className="sav-confirm" onClick={() => setMailModalOpen(false)}>
